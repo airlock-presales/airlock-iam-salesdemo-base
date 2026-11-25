@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: adminer
+
+resources:
+- adminer.yaml
+- gateway.yaml
+
+# automatic login: plugin login-auth-proxy (vendored unchanged, commit efbef4c of
+# https://github.com/omattsson/adminer-login-auth-proxy) and its configuration
+configMapGenerator:
+- name: adminer-plugins
+  files:
+  - plugins/login-auth-proxy.php
+  - plugins/login-auth-proxy-enabled.php

@@ -1,0 +1,48 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: airlock-gateway
+  namespace: airlock-gateway
+spec:
+  infrastructure:
+    parametersRef:
+      group: microgateway.airlock.com
+      kind: GatewayParameters
+      name: gatewayparameters
+  gatewayClassName: airlock-microgateway
+  listeners:
+  - name: http
+    port: 80
+    protocol: HTTP
+    allowedRoutes:
+      namespaces:
+        from: All
+  - name: https
+    port: 443
+    protocol: HTTPS
+    tls:
+      mode: Terminate
+      certificateRefs:
+      - group: ""
+        kind: Secret
+        name: gateway-tls-cert
+    allowedRoutes:
+      namespaces:
+        from: All
+  # local administrator: Adminapp on port 8443, routes from namespace iam only
+  # (access restricted to vm_admin_ips, see iam/iam/gateway/admin-ip-allowlist.yaml)
+  - name: admin
+    port: 8443
+    protocol: HTTPS
+    tls:
+      mode: Terminate
+      certificateRefs:
+      - group: ""
+        kind: Secret
+        name: gateway-tls-cert
+    allowedRoutes:
+      namespaces:
+        from: Selector
+        selector:
+          matchLabels:
+            kubernetes.io/metadata.name: iam

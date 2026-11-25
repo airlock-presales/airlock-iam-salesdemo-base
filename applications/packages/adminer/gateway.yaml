@@ -1,0 +1,92 @@
+# Adminer behind Microgateway: OIDC relying party for /adminer/ (client adminer at the IAM
+# authorization server 'demo', administrators with Airlock 2FA or passkey). The Adminer login with
+# the database credentials is automatic (plugin login-auth-proxy, user header from the ID token).
+# The callback path is matched before the route's URL rewrite.
+# Token endpoint and JWKS: IAM service in the cluster; authorization endpoint: public URL.
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: OIDCProvider
+metadata:
+  name: iam-demo
+spec:
+  static:
+    issuer: https://@@FQDN@@/auth-login/rest/oauth2/authorization-servers/demo
+    endpoints:
+      authorization:
+        uri: https://@@FQDN@@/auth-login/oauth2/v3/demo/authorize
+      token:
+        uri: http://iam.iam.svc.cluster.local/auth-login/rest/oauth2/authorization-servers/demo/token
+    tokenValidation:
+      idToken:
+        signatureVerification:
+          jwksRef:
+            name: iam-demo
+---
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: JWKS
+metadata:
+  name: iam-demo
+spec:
+  provider:
+    remote:
+      uri: http://iam.iam.svc.cluster.local/auth-login/rest/oauth2/authorization-servers/demo/jwks
+---
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: OIDCRelyingParty
+metadata:
+  name: adminer
+spec:
+  clientID: adminer
+  credentials:
+    clientSecret:
+      method: BasicAuth
+      # key client.secret, created by OpenTofu
+      secretRef:
+        name: adminer-oidc-client
+  oidcProviderRef:
+    name: iam-demo
+  redirectURI: https://@@FQDN@@/adminer/_oidc/callback
+  pathMapping:
+    redirectPath:
+      matcher:
+        exact: /adminer/_oidc/callback
+    logoutPath:
+      matcher:
+        exact: /adminer/_oidc/logout
+  scopes:
+  - openid
+---
+# automatic login: user (IAM username) in a header with an unguessable name (project settings)
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: IdentityPropagation
+metadata:
+  name: adminer-user
+spec:
+  header:
+    name: "@@AUTH_HEADER@@"
+    value:
+      source:
+        oidc:
+          idToken:
+            claim: sub
+---
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: AccessControlPolicy
+metadata:
+  name: adminer
+spec:
+  policies:
+    - authorization:
+        authentication:
+          oidc:
+            oidcRelyingPartyRef:
+              name: adminer
+      identityPropagation:
+        actions:
+          - identityPropagationRef:
+              name: adminer-user
+        # only value in 5.2.2; without the header, Adminer refuses the automatic login
+        onFailure: Pass
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: adminer

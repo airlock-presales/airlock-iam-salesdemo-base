@@ -1,0 +1,87 @@
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: APIProtection
+metadata:
+  name: iam-adminapp-rest
+spec:
+  policies:
+    - name: iam-adminapp-rest
+      openAPIRef:
+        name: iam-adminapp
+---
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: APIProtection
+metadata:
+  name: iam-loginapp-rest-oauth2
+spec:
+  policies:
+    - name: iam-loginapp-rest-oauth2
+      openAPIRef:
+        name: iam-loginapp-oauth2
+---
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: APIProtection
+metadata:
+  name: iam-loginapp-rest-protected
+spec:
+  policies:
+    - name: iam-loginapp-rest-protected
+      openAPIRef:
+        name: iam-loginapp-protected
+---
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: APIProtection
+metadata:
+  name: iam-loginapp-rest-public
+spec:
+  policies:
+    - name: iam-loginapp-rest-public
+      openAPIRef:
+        name: iam-loginapp-public
+---
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: OpenAPI
+metadata:
+  name: iam-adminapp
+spec:
+  settings:
+    schema:
+      source:
+        configMapRef:
+          name: iam-adminapp-openapi
+    threatHandlingMode: Block
+---
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: OpenAPI
+metadata:
+  name: iam-loginapp-oauth2
+spec:
+  settings:
+    schema:
+      source:
+        configMapRef:
+          name: iam-loginapp-openapi-oauth2
+    threatHandlingMode: Block
+---
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: OpenAPI
+metadata:
+  name: iam-loginapp-protected
+spec:
+  settings:
+    schema:
+      source:
+        configMapRef:
+          name: iam-loginapp-openapi-protected
+    threatHandlingMode: Block
+---
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: OpenAPI
+metadata:
+  name: iam-loginapp-public
+spec:
+  settings:
+    schema:
+      source:
+        configMapRef:
+          name: iam-loginapp-openapi-public
+    threatHandlingMode: Block

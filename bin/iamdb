@@ -1,0 +1,146 @@
+#!/bin/bash
+#
+# Backup and restore of the IAM database (MariaDB 'iam-mariadb', database 'iam') of an
+# Airlock IAM Salesdemo instance
+#
+# Run from the instance directory (after phase 2: output/kubeconfig.yaml). The dump is compressed
+# and encrypted with sops (age keys of the instance, .sops.yaml rule for backup/):
+# - backup/iam-db.sql.gz.sops   dump, overwritten by each backup (versions: git history)
+# - backup/iam-db.info          time and release of the backup
+#
+# backup  [--commit] [--push]   dump; optionally commit (and push) the backup files
+# restore                       stops IAM (ArgoCD auto-sync of 'bootstrap' and 'iam' paused),
+#                               loads the dump, starts IAM and resumes auto-sync
+#
+# Database passwords stay in the MariaDB pod (MARIADB_ROOT_PASSWORD set by the operator).
+
+set -Eeuo pipefail   # -E: ERR trap also in functions (restore)
+
+BACKUP_DIR="backup"
+DUMP="${BACKUP_DIR}/iam-db.sql.gz.sops"
+INFO="${BACKUP_DIR}/iam-db.info"
+NAMESPACE="iam"
+DB_POD="iam-mariadb-0"
+DB_CONTAINER="mariadb"
+DATABASE="iam"
+APPS=(bootstrap iam)           # ArgoCD applications to pause - bootstrap would restore iam's sync policy
+
+function usage()
+{
+  echo "Usage: $(basename "$0") backup [--commit] [--push]"
+  echo "       $(basename "$0") restore"
+  echo "       Backup and restore of the IAM database. Run from the instance directory."
+  exit 1
+}
+
+function die()
+{
+  echo "ERROR: $1" >&2
+  exit 1
+}
+
+function log()
+{
+  echo "$(date +"%Y-%m-%d %H:%M:%S") $*"
+}
+
+[[ $# -ge 1 ]] || usage
+[[ -n "${SOPS_AGE_KEY_FILE:-}" ]] || die "SOPS_AGE_KEY_FILE must be set"
+[[ -f release ]] || die "file 'release' not found - run from the instance directory"
+[[ -f output/kubeconfig.yaml ]] || die "output/kubeconfig.yaml not found - phase 2 not applied?"
+export KUBECONFIG="${PWD}/output/kubeconfig.yaml"
+
+function db_exec()
+{
+  # $1: client command (mariadb, mariadb-dump), further arguments passed to it
+  local cmd="$1"; shift
+  kubectl -n "${NAMESPACE}" exec -i "${DB_POD}" -c "${DB_CONTAINER}" -- \
+    sh -c "exec ${cmd} -u root -p\"\${MARIADB_ROOT_PASSWORD}\" \"\$@\"" sh "$@"
+}
+
+function backup()
+{
+  local commit=false push=false
+  for arg in "$@"; do
+    case "${arg}" in
+      --commit) commit=true ;;
+      --push)   commit=true; push=true ;;
+      *) usage ;;
+    esac
+  done
+
+  mkdir -p "${BACKUP_DIR}"
+  local tmp="${DUMP}.tmp"
+  # path expanded now: the trap runs at script exit, when the local variable no longer exists
+  trap "rm -f '${tmp}'" EXIT
+  log "Dumping database ${DATABASE}"
+  db_exec mariadb-dump --single-transaction --routines --triggers --databases "${DATABASE}" \
+    | gzip -9 \
+    | sops encrypt --input-type binary --output-type binary --filename-override "${DUMP}" /dev/stdin > "${tmp}"
+  mv "${tmp}" "${DUMP}"
+  trap - EXIT
+  printf 'time: %s\nrelease: %s\n' "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$(tr -d '[:space:]' < release)" > "${INFO}"
+  log "Backup written to ${DUMP}"
+
+  if ${commit}; then
+    git add "${DUMP}" "${INFO}"
+    git commit -m "IAM database backup $(date -u +"%Y-%m-%d %H:%M")" -- "${DUMP}" "${INFO}"
+    log "Backup committed"
+  fi
+  if ${push}; then
+    git push
+    log "Backup pushed"
+  fi
+}
+
+# ArgoCD auto-sync: pause and resume (the automated policy is saved and restored as it was)
+declare -A saved_policy
+
+function pause_sync()
+{
+  for app in "${APPS[@]}"; do
+    saved_policy[${app}]="$(kubectl -n argocd get application "${app}" -o jsonpath='{.spec.syncPolicy.automated}')"
+    kubectl -n argocd patch application "${app}" --type merge -p '{"spec":{"syncPolicy":{"automated":null}}}' > /dev/null
+    log "ArgoCD auto-sync of ${app} paused"
+  done
+}
+
+function resume_sync()
+{
+  for app in "${APPS[@]}"; do
+    [[ -n "${saved_policy[${app}]:-}" ]] || continue
+    kubectl -n argocd patch application "${app}" --type merge \
+      -p "{\"spec\":{\"syncPolicy\":{\"automated\":${saved_policy[${app}]}}}}" > /dev/null
+    log "ArgoCD auto-sync of ${app} resumed"
+  done
+}
+
+function restore()
+{
+  [[ $# -eq 0 ]] || usage
+  [[ -f "${DUMP}" ]] || die "${DUMP} not found"
+  [[ -f "${INFO}" ]] && sed -e 's/^/  /' "${INFO}"
+  read -r -p "Replace the IAM database with this backup? IAM is stopped meanwhile. [yes/no] " answer
+  [[ "${answer}" == "yes" ]] || die "aborted"
+
+  pause_sync
+  trap 'log "Restore failed - starting IAM, resuming auto-sync"; kubectl -n "${NAMESPACE}" scale statefulset iam --replicas=1 > /dev/null || true; resume_sync' ERR
+  kubectl -n "${NAMESPACE}" scale statefulset iam --replicas=0 > /dev/null
+  kubectl -n "${NAMESPACE}" wait --for=delete pod/iam-0 --timeout=300s > /dev/null 2>&1 || true
+  log "IAM stopped"
+
+  log "Loading ${DUMP}"
+  sops decrypt --input-type binary --output-type binary "${DUMP}" | gunzip | db_exec mariadb
+  trap - ERR
+
+  kubectl -n "${NAMESPACE}" scale statefulset iam --replicas=1 > /dev/null
+  log "IAM started"
+  resume_sync
+  log "Restore completed"
+}
+
+case "$1" in
+  backup)  shift; backup "$@" ;;
+  restore) shift; restore "$@" ;;
+  *) usage ;;
+esac

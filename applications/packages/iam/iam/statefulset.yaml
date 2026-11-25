@@ -1,0 +1,384 @@
+# Airlock IAM - single instance 'auth' with Adminapp and Loginapp
+#
+# Volumes
+# - iam-config: instance directory (config, libs)
+# - iam-logs:   log files of the instance, separate volume
+# - secrets:    DB credentials and IAM credentials (SMTP, ...), mounted as files
+#               (/run/secrets/iam-db, /run/secrets/iam), referenced in the config with [FILE]
+# - license:    Airlock IAM license (secret created by OpenTofu)
+# - config:     IAM configuration of the instance (configmap iam-config, created by OpenTofu from
+#               iam/iam-config.yaml of the instance repository), copied into the instance by init
+#               container init-config
+# Init containers: init-instance, init-config, init-lua (lua-cURL), init-valkey (wait for the state
+# repository), init-db (JDBC driver, schema, admin)
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: iam
+  labels:
+    app.kubernetes.io/name: iam
+spec:
+  replicas: 1
+  serviceName: iam
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: iam
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: iam
+      annotations:
+        # hash of the configmap iam-config (OpenTofu): IAM restarts when the configuration changes
+        salesdemo.airlock.com/iam-config-hash: "@@IAM_CONFIG_HASH@@"
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      imagePullSecrets:
+      - name: airlock-iam-pull
+      initContainers:
+      - name: init-instance
+        image: quay.io/airlock/iam:8.7.0
+        command: ["/bin/bash", "/var/tmp/scripts/init_instance"]
+        env:
+        - name: INSTANCE_DIR
+          value: /home/airlock/iam/instances
+        - name: INIT_INSTANCE
+          value: auth
+        - name: INIT_INSTANCE_VERSION
+          value: "8.7.0"
+        - name: IAM_CONFIG_FORMAT
+          value: yaml
+        - name: IAM_ANALYTICS_MODE
+          value: LICENSE_DATA
+        volumeMounts:
+        - name: iam-config
+          mountPath: /home/airlock/iam/instances
+        - name: license
+          mountPath: /home/airlock/iam/license.txt
+          subPath: license.txt
+        - name: scripts
+          mountPath: /var/tmp/scripts
+      # configmap iam-config into a temporary volume, *.gz unpacked (the IAM configuration is stored
+      # compressed - configmaps hold at most 1 MiB); Alpine image (gunzip), already used by init-valkey
+      - name: init-unpack
+        image: valkey/valkey:9.1.3-alpine
+        command:
+        - /bin/sh
+        - -c
+        - |
+          set -eu
+          for f in /var/tmp/config-src/*; do
+            n="$(basename "$f")"
+            case "$n" in
+              *.gz) gunzip -c "$f" > "/var/tmp/config/${n%.gz}" ;;
+              *)    cp -L "$f" "/var/tmp/config/$n" ;;
+            esac
+          done
+          echo "$(date '+%Y-%m-%d %H:%M:%S') Configuration unpacked: $(ls /var/tmp/config | tr '\n' ' ')"
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 999
+          runAsGroup: 999
+        volumeMounts:
+        - name: config
+          mountPath: /var/tmp/config-src
+        - name: config-unpacked
+          mountPath: /var/tmp/config
+      - name: init-config
+        image: quay.io/airlock/iam:8.7.0
+        command: ["/bin/bash", "/var/tmp/scripts/init_config"]
+        env:
+        - name: INSTANCE_DIR
+          value: /home/airlock/iam/instances
+        - name: INIT_INSTANCE
+          value: auth
+        - name: CONFIG_SOURCE
+          value: /var/tmp/config/iam-config.yaml
+        # Loginapp UI customizations (configmap iam-ui-customizations)
+        - name: UI_SOURCE_DIR
+          value: /var/tmp/ui
+        # changed | always | never - instance setting airlock.iam.config_sync
+        - name: IAM_CONFIG_SYNC
+          value: "@@IAM_CONFIG_SYNC@@"
+        volumeMounts:
+        - name: iam-config
+          mountPath: /home/airlock/iam/instances
+        - name: scripts
+          mountPath: /var/tmp/scripts
+        - name: config-unpacked
+          mountPath: /var/tmp/config
+        - name: ui-customizations
+          mountPath: /var/tmp/ui
+      # lua-cURL for the identity proofing scripts (PXL Vision), built once on the IAM image's OS (RHEL 9)
+      - name: init-lua
+        image: docker.io/redhat/ubi9:9.7
+        command: ["/bin/bash", "/var/tmp/scripts/init_lua"]
+        securityContext:
+          runAsUser: 0
+          runAsGroup: 0
+        env:
+        - name: INSTANCE_DIR
+          value: /home/airlock/iam/instances
+        - name: INIT_INSTANCE
+          value: auth
+        - name: LUA_VERSION
+          value: "5.4.8"
+        - name: LUAROCKS_VERSION
+          value: "3.9.2"
+        - name: LUA_CURL_VERSION
+          value: "0.3.13-1"
+        volumeMounts:
+        - name: iam-config
+          mountPath: /home/airlock/iam/instances
+        - name: scripts
+          mountPath: /var/tmp/scripts
+      # state repository: wait for Valkey (answers PONG or NOAUTH without password)
+      - name: init-valkey
+        image: valkey/valkey:9.1.3-alpine
+        command:
+        - /bin/sh
+        - -c
+        - |
+          until valkey-cli -h valkey.iam.svc.cluster.local ping 2>&1 | grep -q -E 'PONG|NOAUTH'; do
+            echo "$(date '+%Y-%m-%d %H:%M:%S') Waiting for Valkey"; sleep 5
+          done
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 999
+          runAsGroup: 999
+      - name: init-db
+        image: mariadb:12-ubi
+        command: ["/bin/bash", "/var/tmp/scripts/init_db"]
+        env:
+        - name: INSTANCE_DIR
+          value: /home/airlock/iam/instances
+        - name: INIT_INSTANCE
+          value: auth
+        - name: IAM_VERSION
+          value: "8.7.0"
+        - name: JDBC_VERSION
+          value: "3.5.8"
+        - name: DB_HOST
+          value: iam-mariadb
+        - name: DB_DATABASE
+          value: iam
+        - name: SECRETS_DIR
+          value: /run/secrets/iam-db
+        - name: ADMIN_SECRETS_DIR
+          value: /run/secrets/iam-admin
+        volumeMounts:
+        - name: iam-config
+          mountPath: /home/airlock/iam/instances
+        - name: scripts
+          mountPath: /var/tmp/scripts
+        - name: db-secret
+          mountPath: /run/secrets/iam-db
+          readOnly: true
+        - name: admin-secret
+          mountPath: /run/secrets/iam-admin
+          readOnly: true
+      containers:
+      - name: iam
+        image: quay.io/airlock/iam:8.7.0
+        args: ["run", "-i", "auth"]
+        env:
+        - name: IAM_CONFIG_FORMAT
+          value: yaml
+        - name: IAM_MODULES
+          value: adminapp,loginapp
+        - name: IAM_WEB_SERVER_CONNECTORS
+          value: http
+        - name: IAM_WEB_SERVER_HTTP_PORT
+          value: "8080"
+        # logging: structured logs to stdout (image default), main log to files on volume iam-logs
+        # overrides log.level in instance.properties
+        - name: IAM_LOG_LEVEL
+          value: DEBUG
+        - name: IAM_LOG_MAIN_ENABLED
+          value: "true"
+        - name: IAM_LOG_STRUCTURED_FILE_ENABLED
+          value: "false"
+        # daily rotation, keep one week (volume size is not enforced by local-path)
+        - name: IAM_LOG_MAIN_ROTATE_MAX_DAYS
+          value: "7"
+        # allows referencing environment variables by name in the IAM config (never shows values)
+        - name: IAM_CONFIG_EDITOR_SHOW_VARIABLES
+          value: "true"
+        # database: IAM start config variables, password read from /run/secrets/iam-db/password ([FILE])
+        - name: IAM_DB_DRIVER_CLASS
+          value: org.mariadb.jdbc.Driver
+        - name: IAM_DB_URL
+          value: jdbc:mariadb://iam-mariadb/iam
+        - name: IAM_DB_USER
+          value: iam
+        # email: SMTP server from instance settings, Mailpit if not set (secret created by OpenTofu)
+        - name: DEMO_SMTP_HOST
+          valueFrom:
+            secretKeyRef:
+              name: iam-credentials
+              key: smtp-host
+        - name: DEMO_SMTP_PORT
+          valueFrom:
+            secretKeyRef:
+              name: iam-credentials
+              key: smtp-port
+        - name: DEMO_SMTP_PROTOCOL
+          valueFrom:
+            secretKeyRef:
+              name: iam-credentials
+              key: smtp-protocol
+        - name: DEMO_SMTP_STARTTLS
+          valueFrom:
+            secretKeyRef:
+              name: iam-credentials
+              key: smtp-starttls
+        - name: DEMO_SMTP_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: iam-credentials
+              key: smtp-username
+        - name: DEMO_SMTP_SENDER
+          valueFrom:
+            secretKeyRef:
+              name: iam-credentials
+              key: smtp-sender
+        # administrator login at an external OIDC provider (optional setting airlock_iam_admin_oidc,
+        # not used by the configuration template): Loginapp URL (redirect URI) and client ID
+        - name: DEMO_LOGINAPP_URL
+          value: "https://@@FQDN@@/auth-login/"
+        - name: DEMO_ADMIN_OIDC_CLIENT_ID
+          valueFrom:
+            secretKeyRef:
+              name: iam-credentials
+              key: admin-oidc-client-id
+        # SMS gateway TrueSenses (optional setting airlock_iam_sms_truesenses, used only by an IAM snippet):
+        # account username and service URI (password read from /run/secrets/iam/truesenses-password via [FILE])
+        - name: DEMO_TRUESENSES_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: iam-credentials
+              key: truesenses-username
+        - name: DEMO_TRUESENSES_SERVICE_URI
+          valueFrom:
+            secretKeyRef:
+              name: iam-credentials
+              key: truesenses-service-uri
+        # FIDO (passkeys): relying party ID
+        - name: DEMO_FQDN
+          value: "@@FQDN@@"
+        # OIDC authorization server 'demo' (tools): issuer (redirect URIs of the clients: @@FQDN@@ in the config)
+        - name: DEMO_OIDC_ISSUER
+          value: "https://@@FQDN@@/auth-login/rest/oauth2/authorization-servers/demo"
+        # restore of the deployed configuration from the portal (flow config-restore): allowed users,
+        # as regex for the flow's access condition, e.g. ^(admin|j[.]doe)$, .* for all
+        # (setting airlock_iam_config_restore_users)
+        - name: DEMO_CONFIG_RESTORE_USERS_PATTERN
+          value: '@@CONFIG_RESTORE_USERS_PATTERN@@'
+        # Airlock 2FA recovery instructions in the portal: true/false (setting airlock_iam_airlock2fa_recovery_info)
+        - name: DEMO_AIRLOCK2FA_RECOVERY_INFO
+          value: "@@AIRLOCK2FA_RECOVERY_INFO@@"
+        # Airlock 2FA: Futurae service ID (API keys read from /run/secrets/iam via [FILE])
+        - name: DEMO_FUTURAE_SERVICE_ID
+          valueFrom:
+            secretKeyRef:
+              name: iam-credentials
+              key: futurae-service-id
+        # health endpoints on separate port, not reachable through the gateway
+        - name: IAM_HEALTH_PORT
+          value: "8081"
+        - name: IAM_HEALTH_ADDRESS
+          value: ".*"
+        - name: TZ
+          value: "@@TIMEZONE@@"
+        ports:
+        - name: http
+          containerPort: 8080
+        - name: health
+          containerPort: 8081
+        # /health/alive only: Loginapp and Adminapp run in the same container, but /health/ready
+        # reflects only the Loginapp - a broken Loginapp configuration must not block access
+        # to the Adminapp (Config Editor) needed to fix it
+        startupProbe:
+          httpGet:
+            path: /health/alive
+            port: health
+          periodSeconds: 5
+          failureThreshold: 60
+        readinessProbe:
+          httpGet:
+            path: /health/alive
+            port: health
+          periodSeconds: 10
+        resources:
+          requests:
+            cpu: 250m
+            memory: 1Gi
+        volumeMounts:
+        - name: iam-config
+          mountPath: /home/airlock/iam/instances
+        - name: iam-logs
+          mountPath: /home/airlock/iam/instances/auth/logs
+        - name: license
+          mountPath: /home/airlock/iam/license.txt
+          subPath: license.txt
+        - name: db-secret
+          mountPath: /run/secrets/iam-db
+          readOnly: true
+        - name: credentials
+          mountPath: /run/secrets/iam
+          readOnly: true
+        - name: work
+          mountPath: /home/airlock/work
+        # deployed configuration (configmap iam-config) - source of the restore from the portal;
+        # updated by Kubernetes after make apply-3
+        - name: config-unpacked
+          mountPath: /var/tmp/config
+          readOnly: true
+      volumes:
+      - name: license
+        secret:
+          secretName: airlock-iam-license
+      - name: db-secret
+        secret:
+          secretName: iam-db
+      - name: admin-secret
+        secret:
+          secretName: iam-admin
+      - name: credentials
+        secret:
+          secretName: iam-credentials
+      - name: scripts
+        configMap:
+          name: iam-init
+      - name: config
+        configMap:
+          name: iam-config
+      - name: ui-customizations
+        configMap:
+          name: iam-ui-customizations
+          optional: true
+      - name: work
+        emptyDir: {}
+      # configmap iam-config unpacked by init-unpack (read by init-config and the IAM container)
+      - name: config-unpacked
+        emptyDir: {}
+  volumeClaimTemplates:
+  - metadata:
+      name: iam-config
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: local-path
+      resources:
+        requests:
+          storage: 1Gi
+  - metadata:
+      name: iam-logs
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: local-path
+      resources:
+        requests:
+          storage: 1Gi

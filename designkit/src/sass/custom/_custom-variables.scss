@@ -1,0 +1,66 @@
+// SASS variables to customize the look and feel of the Loginapp UI.
+// A list of all available SASS variables is provided in the online documentation:
+// https://docs.airlock.com/iam/latest/?topic=IAM-00000114
+//
+// It is recommended to only add the variables that need to be customized, but otherwise inherit the built-in defaults.
+// This helps to avoid conflicts with future product updates.
+//
+
+// ---------------------------------------------------------------------------------------------------
+// Airlock IAM Salesdemo: light, minimalistic style in the Airlock colors
+// ---------------------------------------------------------------------------------------------------
+
+// Airlock palette
+$demo-iam-blue:   #1F7099;  // main IAM color
+$demo-teal:       #00BFBF;  // accent
+$demo-slate:      #3e5c70;  // accent, secondary text and headings
+$demo-green:      #70991F;
+$demo-magenta:    #991f70;
+$demo-gray-light: #f4f6f8;
+$demo-gray-line:  #dde3e8;
+
+// basics: system fonts (no font download), calm text color
+$iam-primary-color:     $demo-iam-blue;
+$iam-font-family-base:  system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+$iam-body-color:        #1f2a33;
+$iam-body-bg:           $demo-gray-light;
+$iam-border-radius:     0.5rem;
+$iam-link-color:        $demo-iam-blue;
+$iam-link-decoration:   none;
+
+// logo (Airlock, transparent PNG 1200x311, about 3.9:1 - the design kit scales it to exactly width x height) and loader (IAM icon)
+$iam-show-logo:         true;
+$iam-logo-url:          custom-asset('img/logo-airlock.png');
+$iam-logo-width:        150px;
+$iam-logo-height:       39px;
+$iam-loader-logo-url:   custom-asset('img/icon-iam.svg');
+
+// cards: white, no colored title bar
+$iam-card-header-background: #fff;
+$iam-card-header-font-color: $demo-slate;
+$iam-card-border-radius:     0.75rem;
+
+// buttons and forms
+$iam-btn-primary-bg:            $demo-iam-blue;
+$iam-btn-primary-color:         #fff;
+$iam-btn-border-radius:         0.5rem;
+$iam-input-border-color:        $demo-gray-line;
+$iam-input-focus-border-color:  $demo-teal;
+$iam-label-always-on-top:       true;
+$iam-show-password-toggle:      true;
+
+// messages: Airlock colors for success and errors
+$iam-alert-success-text:   darken($demo-green, 10%);
+$iam-alert-success-bg:     rgba($demo-green, 0.1);
+$iam-alert-success-border: rgba($demo-green, 0.4);
+$iam-alert-danger-text:    $demo-magenta;
+$iam-alert-danger-bg:      rgba($demo-magenta, 0.08);
+$iam-alert-danger-border:  rgba($demo-magenta, 0.35);
+$iam-alert-info-text:      $demo-iam-blue;
+$iam-alert-info-bg:        rgba($demo-iam-blue, 0.08);
+$iam-alert-info-border:    rgba($demo-iam-blue, 0.3);
+
+// application portal: light tiles (see _custom-styles.scss) - IAM icon as default target icon, dark
+// arrow also on hover (mobile layout)
+$iam-portal-target-icon:                    custom-asset('img/icon-iam.svg');
+$iam-portal-target-mobile-right-icon-white: product-asset('img/icon-chevron-compact-right.svg');

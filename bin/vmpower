@@ -1,0 +1,67 @@
+#!/bin/bash
+#
+# Stop (deallocate) and start the VM of an Airlock IAM Salesdemo instance - Azure only
+#
+# Run from the instance directory (after phase 2: output/talosconfig.yaml, output/kubeconfig.yaml).
+# stop   shuts Talos down cleanly (talosctl shutdown), then deallocates the VM: no compute costs,
+#        disks and public IPs are still billed and kept (static IPs - the demo keeps its addresses)
+# start  starts the VM and waits until the Kubernetes node is Ready; IAM and the other applications
+#        then start within a few minutes
+#
+# Requires the Azure CLI, logged in (az login, az account set --subscription ...), talosctl, kubectl.
+
+set -euo pipefail
+
+TOFUWRAP="$(dirname "$(readlink -f "$0")")/tofuwrap"
+TALOSCONFIG="output/talosconfig.yaml"
+KUBECONFIG_FILE="output/kubeconfig.yaml"
+
+function usage()
+{
+  echo "Usage: $(basename "$0") stop|start"
+  exit 1
+}
+
+function die()
+{
+  echo "ERROR: $1" >&2
+  exit 1
+}
+
+[[ $# -eq 1 ]] || usage
+[[ "$1" == "stop" || "$1" == "start" ]] || usage
+command -v az >/dev/null || die "Azure CLI (az) not found"
+
+# VM from the phase 1 outputs (only the Azure platform has them)
+rg="$("${TOFUWRAP}" 1 output -raw azure_resource_group 2>/dev/null)" \
+  || die "phase 1 output azure_resource_group not found - only for platform azure (after 'make apply-1')"
+vm="$("${TOFUWRAP}" 1 output -raw azure_vm_name 2>/dev/null)" || die "phase 1 output azure_vm_name not found"
+
+case $1 in
+  stop)
+    command -v talosctl >/dev/null || die "talosctl not found"
+    [[ -f "${TALOSCONFIG}" ]] || die "${TALOSCONFIG} not found - phase 2 not applied?"
+    # clean shutdown (pods stopped, etcd closed) before Azure powers the VM off
+    echo "Shutting down Talos on ${vm} ..."
+    talosctl --talosconfig "${TALOSCONFIG}" shutdown --wait --timeout 5m \
+      || echo "WARNING: talosctl shutdown failed or timed out - deallocating anyway" >&2
+    echo "Deallocating ${vm} (resource group ${rg}) ..."
+    az vm deallocate --resource-group "${rg}" --name "${vm}"
+    echo "VM deallocated - 'make start' to start it again"
+    ;;
+  start)
+    command -v kubectl >/dev/null || die "kubectl not found"
+    echo "Starting ${vm} (resource group ${rg}) ..."
+    az vm start --resource-group "${rg}" --name "${vm}"
+    if [[ -f "${KUBECONFIG_FILE}" ]]; then
+      echo "Waiting for the Kubernetes node (max. 10 minutes) ..."
+      # the API server needs a moment after the boot - retry until it answers
+      for _ in $(seq 60); do
+        KUBECONFIG="${KUBECONFIG_FILE}" kubectl get nodes >/dev/null 2>&1 && break
+        sleep 10
+      done
+      KUBECONFIG="${KUBECONFIG_FILE}" kubectl wait --for=condition=Ready node --all --timeout=5m
+      echo "Node ready - IAM and the other applications start within a few minutes (ArgoCD shows the state)"
+    fi
+    ;;
+esac

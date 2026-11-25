@@ -1,0 +1,102 @@
+#!/bin/bash
+#
+# IAM configuration of an Airlock IAM Salesdemo instance (iam/iam-config.yaml in the instance
+# repository; deployed by 'make apply-3', copied into IAM by the init container init-config)
+#
+# init   copy the configuration template (iam/ of the base repository: iam-config.yaml, server-side
+#        texts) - only files the instance doesn't have yet, existing files are never replaced
+# pull   copy the active configuration from IAM (e.g. changed in the Config Editor) to
+#        iam/iam-config.yaml; the FQDN is replaced by the placeholder @@FQDN@@ again. With
+#        configuration snippets deployed (setting airlock_iam_config_snippets), the active
+#        configuration contains the snippets too: it is written to iam/iam-config.active.yaml
+#        instead, carry the changes over to iam/iam-config.yaml or the snippet manually
+#
+# Run from the instance directory.
+
+set -euo pipefail
+
+CONFIG="iam/iam-config.yaml"
+TEMPLATE_DIR="${SALESDEMO:-./salesdemo}/iam"
+NAMESPACE="iam"
+POD="iam-0"
+CONTAINER="iam"
+ACTIVE="/home/airlock/iam/instances/auth/iam-config.yaml"
+
+function usage()
+{
+  echo "Usage: $(basename "$0") init|pull"
+  echo "       IAM configuration of the instance. Run from the instance directory."
+  exit 1
+}
+
+function die()
+{
+  echo "ERROR: $1" >&2
+  exit 1
+}
+
+[[ $# -eq 1 ]] || usage
+[[ -f release ]] || die "file 'release' not found - run from the instance directory"
+
+function init()
+{
+  [[ -f "${TEMPLATE_DIR}/iam-config.yaml" ]] || die "template ${TEMPLATE_DIR}/iam-config.yaml not found"
+  local created=0 rel
+  while IFS= read -r rel; do
+    if [[ -e "iam/${rel}" ]]; then
+      continue
+    fi
+    mkdir -p "$(dirname "iam/${rel}")"
+    cp "${TEMPLATE_DIR}/${rel}" "iam/${rel}"
+    echo "iam/${rel} created from the template"
+    created=$((created + 1))
+  done < <(cd "${TEMPLATE_DIR}" && find . -type f | sed 's|^\./||' | sort)
+  if [[ ${created} -gt 0 ]]; then
+    echo "Commit iam/"
+  else
+    echo "iam/ complete - existing files left unchanged (newer template: merge manually)"
+  fi
+}
+
+function pull()
+{
+  [[ -n "${SOPS_AGE_KEY_FILE:-}" ]] || die "SOPS_AGE_KEY_FILE must be set"
+  [[ -f output/kubeconfig.yaml ]] || die "output/kubeconfig.yaml not found - phase 2 not applied?"
+  export KUBECONFIG="${PWD}/output/kubeconfig.yaml"
+
+  local fqdn
+  fqdn="$(sops decrypt variables.auto.tfvars | sed -n -E 's/^[[:space:]]*demo_fqdn[[:space:]]*=[[:space:]]*"([^"]+)".*/\1/p')"
+  [[ -n "${fqdn}" ]] || die "setting 'demo_fqdn' not found"
+
+  # snippets deployed? (keys snippet.* in the configmap iam-config)
+  local out="${CONFIG}"
+  if kubectl -n "${NAMESPACE}" get configmap iam-config -o go-template='{{range $k, $v := .data}}{{$k}}{{"\n"}}{{end}}' \
+       | grep -q '^snippet\.'; then
+    out="${CONFIG%.yaml}.active.yaml"
+  fi
+
+  local tmp="${out}.tmp"
+  mkdir -p "$(dirname "${CONFIG}")"
+  # path expanded now: the trap runs at script exit, when the local variable no longer exists
+  trap "rm -f '${tmp}'" EXIT
+  kubectl -n "${NAMESPACE}" exec "${POD}" -c "${CONTAINER}" -- cat "${ACTIVE}" \
+    | sed -e "s|${fqdn//./\\.}|@@FQDN@@|g" > "${tmp}"
+  [[ -s "${tmp}" ]] || die "configuration read from IAM is empty"
+  mv "${tmp}" "${out}"
+  trap - EXIT
+  if [[ "${out}" != "${CONFIG}" ]]; then
+    echo "Configuration snippets are deployed: the active configuration (with the snippets) was written to"
+    echo "${out} - not to ${CONFIG}, as the next deployment would import the snippets again."
+    echo "Compare (e.g. diff ${CONFIG} ${out}) and carry your changes over to ${CONFIG} or the snippet in"
+    echo "iam/snippets/ manually; ${out} is not meant to be committed."
+  else
+    echo "${CONFIG} updated from IAM - review (git diff) and commit; 'make apply-3' deploys it"
+    git diff --stat -- "${CONFIG}" || true
+  fi
+}
+
+case "$1" in
+  init) init ;;
+  pull) pull ;;
+  *) usage ;;
+esac

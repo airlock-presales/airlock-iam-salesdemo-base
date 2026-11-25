@@ -1,0 +1,186 @@
+#! /bin/bash
+# init_config - copies the IAM configuration (configmap iam-config, from the instance repository) into the instance
+#
+# IAM_CONFIG_SYNC (instance setting airlock.iam.config_sync)
+# - changed: copy if the deployed configuration changed since the last copy (default)
+# - always:  copy on every start
+# - never:   leave the instance configuration unchanged (e.g. while editing in the Config Editor)
+#
+# The replaced configuration is kept as iam-config.yaml.<timestamp>, so changes made in the
+# Config Editor are not lost.
+#
+# Configuration snippets (configmap keys snippet.<NN>.<file>, setting airlock_iam_config_snippets) are
+# imported into a copy of the deployed configuration in key order (iam config import-snippet), the
+# result is validated (iam config validate); an error stops the start (the pod does not start until
+# the snippet is fixed). The result - the deployed configuration as IAM should run it - is written to
+# <instance>/.iam-config-deployed.yaml at every start (independent of IAM_CONFIG_SYNC; used by the
+# config restore flow), and it is what IAM_CONFIG_SYNC copies and compares.
+#
+# Server-side texts (configmap keys <app>-texts.<file>, e.g. loginapp-texts.strings_en.properties)
+# are always copied to <instance>/<app>-texts/<file>, independent of IAM_CONFIG_SYNC; files copied
+# earlier but no longer in the configmap are removed.
+#
+# Loginapp UI customizations (airlock-iam-loginapp-rest-ui-customizations.zip in the configmap) are
+# copied at every start too, and set in instance.properties (iam.loginapp.rest.ui.customizations).
+#
+# Clean-up at every start: the 2 newest backups iam-config.yaml.<timestamp> are kept (the history is
+# in the instance repository), and the 20 newest configurations per application that IAM keeps in
+# .activated-configs/ at each activation.
+
+set -euo pipefail
+
+function log ()
+{
+    echo "$(date +"%Y-%m-%d %H:%M:%S") $*"
+}
+
+function die ()
+{
+    log "ERROR: $*"
+    exit 1
+}
+
+for f in INSTANCE_DIR INIT_INSTANCE IAM_CONFIG_SYNC CONFIG_SOURCE
+do
+  [[ -n "${!f:-}" ]] || die "${f} not set"
+done
+
+instance_dir="${INSTANCE_DIR}/${INIT_INSTANCE}"
+target="${instance_dir}/iam-config.yaml"
+hashfile="${instance_dir}/.iam-config-git.sha256"
+
+[[ -f "${CONFIG_SOURCE}" ]] || die "Configuration ${CONFIG_SOURCE} not found"
+[[ -d "${instance_dir}" ]] || die "Instance directory ${instance_dir} not found"
+
+source_dir="$(dirname "${CONFIG_SOURCE}")"
+deployed="${instance_dir}/.iam-config-deployed.yaml"
+iam_cli=/opt/airlock-iam/bin/iam
+# snippets in import order (key snippet.<NN>.<file>)
+mapfile -t snippets < <(ls -1 "${source_dir}"/snippet.*.yaml "${source_dir}"/snippet.*.yml 2>/dev/null | sort)
+# hash over the deployed configuration and the snippets: a change of either is a change
+hash="$( { sha256sum "${CONFIG_SOURCE}"; for s in "${snippets[@]}"; do sha256sum "${s}"; done; } \
+    | sed -e "s|${source_dir}/||" | sha256sum | cut -d' ' -f1)"
+
+# clean-up at exit (also after a copy, which adds a backup); names sort by time
+function cleanup ()
+{
+    local f app
+    for f in $(ls -1 "${instance_dir}"/iam-config.yaml.* 2>/dev/null | sort -r | tail -n +3); do
+        rm -f "${f}"
+    done
+    for app in adminapp loginapp; do
+        for f in $(ls -1 "${instance_dir}/.activated-configs/${app}-config-"*.yaml 2>/dev/null | sort -r | tail -n +21); do
+            rm -f "${f}"
+        done
+    done
+}
+trap cleanup EXIT
+
+# server-side texts; .texts-managed lists the files copied last time - only those are removed
+# when they are no longer in the configmap
+source_dir="$(dirname "${CONFIG_SOURCE}")"
+managed="${instance_dir}/.texts-managed"
+copied=()
+shopt -s nullglob
+for f in "${source_dir}"/*-texts.*.properties; do
+    name="$(basename "${f}")"
+    rel="${name%%.*}/${name#*.}"
+    mkdir -p "${instance_dir}/${name%%.*}"
+    cp -L "${f}" "${instance_dir}/${rel}"
+    copied+=("${rel}")
+    log "Text file ${rel} copied"
+done
+shopt -u nullglob
+if [[ -f "${managed}" ]]; then
+    while read -r rel; do
+        [[ -n "${rel}" ]] || continue
+        [[ " ${copied[*]} " == *" ${rel} "* ]] && continue
+        rm -f "${instance_dir}/${rel}"
+        log "Text file ${rel} removed (no longer in the configuration)"
+    done < "${managed}"
+fi
+printf '%s\n' "${copied[@]}" > "${managed}"
+
+# Loginapp UI customizations (design kit zip, binary data of the configmap iam-ui-customizations): copied at every start like the
+# texts; instance.properties points to it. Without a zip in the configmap, only a zip copied earlier by
+# init-config (marker .ui-customizations-managed) is removed with the property - a zip placed manually
+# and its property are left unchanged
+ui_zip=airlock-iam-loginapp-rest-ui-customizations.zip
+ui_source_dir="${UI_SOURCE_DIR:-${source_dir}}"   # own configmap iam-ui-customizations
+properties="${instance_dir}/instance.properties"
+ui_managed="${instance_dir}/.ui-customizations-managed"   # marker: zip copied by init-config
+ui_value=""
+if [[ -f "${ui_source_dir}/${ui_zip}" ]]; then
+    cp -L "${ui_source_dir}/${ui_zip}" "${instance_dir}/${ui_zip}"
+    touch "${ui_managed}"
+    # as documented: IAM resolves ${instance.name} itself (single quotes: no shell expansion)
+    ui_value='instances/${instance.name}/'"${ui_zip}"
+    log "Loginapp UI customizations ${ui_zip} copied"
+elif [[ -f "${ui_managed}" ]]; then
+    # copied earlier by init-config, no longer in the configuration
+    rm -f "${instance_dir}/${ui_zip}" "${ui_managed}"
+    log "Loginapp UI customizations removed (no longer in the configuration)"
+else
+    # not managed here (e.g. placed manually): zip and property left unchanged
+    ui_value="unmanaged"
+fi
+if [[ "${ui_value}" == "unmanaged" ]]; then
+    :
+elif [[ -f "${properties}" ]]; then
+    sed -i -e '/^iam\.loginapp\.rest\.ui\.customizations[[:space:]]*=/d' "${properties}"
+    if [[ -n "${ui_value}" ]]; then
+        echo "iam.loginapp.rest.ui.customizations = ${ui_value}" >> "${properties}"
+    fi
+fi
+
+# deployed configuration with the snippets imported (temporary copy, then .iam-config-deployed.yaml)
+work="$(mktemp -d)"
+trap 'rm -rf "${work}"; cleanup' EXIT
+merged="${work}/iam-config.yaml"
+cp "${CONFIG_SOURCE}" "${merged}"
+for s in "${snippets[@]}"; do
+    name="$(basename "${s}" | sed -e 's/^snippet\.[0-9]*\.//')"
+    "${iam_cli}" config import-snippet -f "${merged}" "${s}" \
+        || die "Import of configuration snippet ${name} failed - fix iam/snippets/${name} (or remove it from airlock_iam_config_snippets) and run 'make apply-3'"
+    log "Configuration snippet ${name} imported"
+done
+if [[ ${#snippets[@]} -gt 0 ]]; then
+    "${iam_cli}" config validate -f "${merged}" \
+        || die "Configuration with snippets is invalid - see the messages above"
+    log "Configuration with ${#snippets[@]} snippet(s) valid"
+fi
+cp "${merged}" "${deployed}"
+merged_sha="$(sha256sum "${merged}" | cut -d' ' -f1)"
+
+case "${IAM_CONFIG_SYNC}" in
+    never)
+        log "Configuration sync disabled - leaving instance configuration unchanged"
+        exit 0
+        ;;
+    changed)
+        if [[ -f "${hashfile}" && "$(cat "${hashfile}")" == "${hash}" ]]; then
+            log "Configuration from git unchanged (${hash}) - leaving instance configuration unchanged"
+            exit 0
+        fi
+        ;;
+    always)
+        ;;
+    *)
+        die "IAM_CONFIG_SYNC must be one of changed, always, never (is '${IAM_CONFIG_SYNC}')"
+        ;;
+esac
+
+if [[ -f "${target}" && "$(sha256sum "${target}" | cut -d' ' -f1)" == "${merged_sha}" ]]; then
+    echo "${hash}" > "${hashfile}"
+    log "Instance configuration identical to git (${hash})"
+    exit 0
+fi
+
+if [[ -f "${target}" ]]; then
+    backup="${target}.$(date +%Y%m%d-%H%M%S)"
+    cp -p "${target}" "${backup}"
+    log "Instance configuration saved as ${backup}"
+fi
+cp "${merged}" "${target}"
+echo "${hash}" > "${hashfile}"
+log "Configuration from git copied (${hash}, ${#snippets[@]} snippet(s))"

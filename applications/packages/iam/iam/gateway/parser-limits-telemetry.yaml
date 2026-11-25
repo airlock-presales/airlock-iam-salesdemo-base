@@ -1,0 +1,54 @@
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: Limits
+metadata:
+  name: iam
+spec:
+  request:
+    limited:
+      general:
+        pathLength: 1Ki
+      json:
+        elementCount: 150000
+        keyCount: 250
+        keyLength: "256"
+        nestingDepth: 100
+        valueLength: 8Ki
+      parameter:
+        count: 256
+        nameLength: "128"
+        valueLength: 10Ki
+  settings:
+    threatHandlingMode: Block
+---
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: Parser
+metadata:
+  name: iam
+spec:
+  request:
+    custom:
+      rules:
+        - action:
+            skip: {}
+          requestConditions:
+            header:
+              name:
+                matcher:
+                  exact: Content-Length
+              value:
+                matcher:
+                  exact: "0"
+            mediaType:
+              matcher:
+                regex: .*json.*
+    defaultContentType: application/json
+---
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: Telemetry
+metadata:
+  name: iam
+spec:
+  correlation:
+    idSource:
+      header:
+        name: X-Correlation-Id

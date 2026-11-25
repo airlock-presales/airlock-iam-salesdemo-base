@@ -1,0 +1,140 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 980 690" preserveAspectRatio="xMidYMid meet" font-family="Helvetica, Arial, sans-serif">
+  <title>Airlock IAM Salesdemo - component stack</title>
+  <rect x="0" y="0" width="980" height="690" fill="#ffffff"/>
+
+  <text x="20" y="34" font-size="20" font-weight="bold" fill="#111827">Airlock IAM Salesdemo - component stack</text>
+
+  <!-- ===== left column: deployed by ===== -->
+  <text x="95" y="66" font-size="11" font-weight="bold" fill="#4b5563" text-anchor="middle">DEPLOYED BY</text>
+
+  <rect x="20" y="70" width="150" height="380" rx="8" fill="#ffedd5" stroke="#ea580c"/>
+  <text x="95" y="100" font-size="15" font-weight="bold" fill="#7c2d12" text-anchor="middle">ArgoCD</text>
+  <text x="95" y="122" font-size="11" fill="#7c2d12" text-anchor="middle">app-of-apps,</text>
+  <text x="95" y="137" font-size="11" fill="#7c2d12" text-anchor="middle">sync waves, from the</text>
+  <text x="95" y="152" font-size="11" fill="#7c2d12" text-anchor="middle">base repository</text>
+  <text x="95" y="174" font-size="11" fill="#7c2d12" text-anchor="middle">(also keeps itself</text>
+  <text x="95" y="189" font-size="11" fill="#7c2d12" text-anchor="middle">up to date)</text>
+
+  <rect x="30" y="352" width="130" height="88" rx="6" fill="#fef9c3" stroke="#ca8a04"/>
+  <text x="95" y="372" font-size="12" font-weight="bold" fill="#713f12" text-anchor="middle">OpenTofu phase 3</text>
+  <text x="95" y="390" font-size="11" fill="#713f12" text-anchor="middle">installs ArgoCD;</text>
+  <text x="95" y="405" font-size="11" fill="#713f12" text-anchor="middle">settings, secrets,</text>
+  <text x="95" y="420" font-size="11" fill="#713f12" text-anchor="middle">IAM configuration</text>
+
+  <rect x="20" y="460" width="150" height="130" rx="8" fill="#fef9c3" stroke="#ca8a04"/>
+  <text x="95" y="512" font-size="13" font-weight="bold" fill="#713f12" text-anchor="middle">OpenTofu phase 2</text>
+  <text x="95" y="530" font-size="11" fill="#713f12" text-anchor="middle">Talos configuration,</text>
+  <text x="95" y="545" font-size="11" fill="#713f12" text-anchor="middle">Kubernetes bootstrap</text>
+
+  <rect x="20" y="600" width="150" height="60" rx="8" fill="#fef9c3" stroke="#ca8a04"/>
+  <text x="95" y="626" font-size="13" font-weight="bold" fill="#713f12" text-anchor="middle">OpenTofu phase 1</text>
+  <text x="95" y="643" font-size="11" fill="#713f12" text-anchor="middle">VM on the platform</text>
+
+  <!-- ===== L7 applications ===== -->
+  <rect x="190" y="70" width="770" height="120" rx="8" fill="#dbeafe" stroke="#3b82f6"/>
+  <text x="205" y="135" font-size="14" font-weight="bold" fill="#1e3a8a">Applications</text>
+  <rect x="360" y="80" width="230" height="100" rx="6" fill="#ffffff" stroke="#3b82f6" stroke-width="2"/>
+  <text x="475" y="104" font-size="16" font-weight="bold" fill="#1e3a8a" text-anchor="middle">Airlock IAM</text>
+  <text x="475" y="125" font-size="11" fill="#374151" text-anchor="middle">Loginapp: login, registration,</text>
+  <text x="475" y="140" font-size="11" fill="#374151" text-anchor="middle">self-services, recovery, OIDC</text>
+  <text x="475" y="160" font-size="11" fill="#374151" text-anchor="middle">Adminapp: helpdesk, Config Editor</text>
+
+  <g font-size="11" text-anchor="middle">
+    <rect x="600" y="80" width="110" height="45" rx="6" fill="#ffffff" stroke="#3b82f6"/>
+    <text x="655" y="98" font-size="13" font-weight="bold" fill="#1e3a8a">Adminer</text>
+    <text x="655" y="115" fill="#4b5563">database UI</text>
+    <rect x="720" y="80" width="110" height="45" rx="6" fill="#ffffff" stroke="#3b82f6"/>
+    <text x="775" y="98" font-size="13" font-weight="bold" fill="#1e3a8a">Headlamp</text>
+    <text x="775" y="115" fill="#4b5563">Kubernetes UI</text>
+    <rect x="840" y="80" width="110" height="45" rx="6" fill="#ffffff" stroke="#3b82f6"/>
+    <text x="895" y="98" font-size="13" font-weight="bold" fill="#1e3a8a">Mailpit</text>
+    <text x="895" y="115" fill="#4b5563">catches emails</text>
+    <rect x="600" y="135" width="110" height="45" rx="6" fill="#ffffff" stroke="#3b82f6"/>
+    <text x="655" y="153" font-size="13" font-weight="bold" fill="#1e3a8a">qr-service</text>
+    <text x="655" y="170" fill="#4b5563">QR codes</text>
+    <rect x="720" y="135" width="110" height="45" rx="6" fill="#ffffff" stroke="#3b82f6"/>
+    <text x="775" y="153" font-size="13" font-weight="bold" fill="#1e3a8a">argocd-cli</text>
+    <text x="775" y="170" fill="#4b5563">debug container</text>
+  </g>
+
+  <!-- ===== L6 microgateway ===== -->
+  <rect x="190" y="200" width="770" height="60" rx="8" fill="#dcfce7" stroke="#16a34a"/>
+  <text x="205" y="226" font-size="14" font-weight="bold" fill="#14532d">Airlock</text>
+  <text x="205" y="243" font-size="14" font-weight="bold" fill="#14532d">Microgateway</text>
+  <rect x="360" y="210" width="590" height="40" rx="6" fill="#ffffff" stroke="#16a34a" stroke-width="2"/>
+  <text x="655" y="227" font-size="13" font-weight="bold" fill="#14532d" text-anchor="middle">Gateway (airlock-gateway) - the single entry point</text>
+  <text x="655" y="243" font-size="11" fill="#4b5563" text-anchor="middle">TLS · HTTP routes · deny rules · access control · OIDC relying party and identity propagation for the tools</text>
+
+  <!-- ===== L5 data ===== -->
+  <rect x="190" y="270" width="770" height="60" rx="8" fill="#fce7f3" stroke="#db2777"/>
+  <text x="205" y="305" font-size="14" font-weight="bold" fill="#831843">Data</text>
+  <g font-size="11" text-anchor="middle">
+    <rect x="360" y="280" width="190" height="40" rx="6" fill="#ffffff" stroke="#db2777"/>
+    <text x="455" y="297" font-size="13" font-weight="bold" fill="#831843">MariaDB</text>
+    <text x="455" y="313" fill="#4b5563">IAM database</text>
+    <rect x="560" y="280" width="190" height="40" rx="6" fill="#ffffff" stroke="#db2777"/>
+    <text x="655" y="297" font-size="13" font-weight="bold" fill="#831843">Valkey</text>
+    <text x="655" y="313" fill="#4b5563">IAM sessions, flow state</text>
+    <rect x="760" y="280" width="190" height="40" rx="6" fill="#ffffff" stroke="#db2777"/>
+    <text x="855" y="297" font-size="13" font-weight="bold" fill="#831843">Valkey</text>
+    <text x="855" y="313" fill="#4b5563">Microgateway sessions</text>
+  </g>
+
+  <!-- ===== L4 cluster services ===== -->
+  <rect x="190" y="340" width="770" height="110" rx="8" fill="#ede9fe" stroke="#7c3aed"/>
+  <text x="205" y="400" font-size="14" font-weight="bold" fill="#4c1d95">Cluster services</text>
+  <g font-size="11" text-anchor="middle">
+    <rect x="360" y="350" width="140" height="40" rx="6" fill="#ffffff" stroke="#7c3aed"/>
+    <text x="430" y="367" font-size="11" font-weight="bold" fill="#4c1d95">Microgateway operator</text>
+    <text x="430" y="383" fill="#4b5563">runs the gateway</text>
+    <rect x="510" y="350" width="140" height="40" rx="6" fill="#ffffff" stroke="#7c3aed"/>
+    <text x="580" y="367" font-size="12" font-weight="bold" fill="#4c1d95">MariaDB operator</text>
+    <text x="580" y="383" fill="#4b5563">runs MariaDB</text>
+    <rect x="660" y="350" width="140" height="40" rx="6" fill="#ffffff" stroke="#7c3aed"/>
+    <text x="730" y="367" font-size="12" font-weight="bold" fill="#4c1d95">cert-manager</text>
+    <text x="730" y="383" fill="#4b5563">gateway certificate</text>
+    <rect x="810" y="350" width="140" height="40" rx="6" fill="#ffffff" stroke="#7c3aed"/>
+    <text x="880" y="367" font-size="12" font-weight="bold" fill="#4c1d95">PureLB</text>
+    <text x="880" y="383" fill="#4b5563">LoadBalancer IP</text>
+    <rect x="360" y="400" width="140" height="40" rx="6" fill="#ffffff" stroke="#7c3aed"/>
+    <text x="430" y="417" font-size="12" font-weight="bold" fill="#4c1d95">Gateway API</text>
+    <text x="430" y="433" fill="#4b5563">CRDs</text>
+    <rect x="510" y="400" width="140" height="40" rx="6" fill="#ffffff" stroke="#7c3aed"/>
+    <text x="580" y="417" font-size="12" font-weight="bold" fill="#4c1d95">local-path</text>
+    <text x="580" y="433" fill="#4b5563">volumes on data disk</text>
+    <rect x="660" y="400" width="290" height="40" rx="6" fill="#ffffff" stroke="#ea580c" stroke-width="2"/>
+    <text x="805" y="417" font-size="12" font-weight="bold" fill="#7c2d12">ArgoCD</text>
+    <text x="805" y="433" fill="#4b5563">GitOps: deploys and syncs all applications</text>
+  </g>
+
+  <!-- ===== L3 kubernetes ===== -->
+  <rect x="190" y="460" width="770" height="60" rx="8" fill="#cffafe" stroke="#0891b2"/>
+  <text x="205" y="495" font-size="14" font-weight="bold" fill="#164e63">Kubernetes</text>
+  <rect x="360" y="470" width="590" height="40" rx="6" fill="#ffffff" stroke="#0891b2" stroke-width="2"/>
+  <text x="655" y="487" font-size="13" font-weight="bold" fill="#164e63" text-anchor="middle">single node: control plane and workloads</text>
+  <text x="655" y="503" font-size="11" fill="#4b5563" text-anchor="middle">API server · etcd · kubelet · Flannel (CNI) · CoreDNS</text>
+
+  <!-- ===== L2 talos ===== -->
+  <rect x="190" y="530" width="770" height="60" rx="8" fill="#fee2e2" stroke="#dc2626"/>
+  <text x="205" y="565" font-size="14" font-weight="bold" fill="#7f1d1d">Talos Linux</text>
+  <rect x="360" y="540" width="590" height="40" rx="6" fill="#ffffff" stroke="#dc2626" stroke-width="2"/>
+  <text x="655" y="557" font-size="13" font-weight="bold" fill="#7f1d1d" text-anchor="middle">immutable OS for Kubernetes, managed through its API (no SSH)</text>
+  <text x="655" y="573" font-size="11" fill="#4b5563" text-anchor="middle">system disk · data disk for persistent volumes</text>
+
+  <!-- ===== L1 vm ===== -->
+  <rect x="190" y="600" width="770" height="60" rx="8" fill="#f1f5f9" stroke="#64748b"/>
+  <text x="205" y="635" font-size="14" font-weight="bold" fill="#1e293b">Virtual machine</text>
+  <g font-size="11" text-anchor="middle">
+    <rect x="360" y="610" width="190" height="40" rx="6" fill="#ffffff" stroke="#64748b"/>
+    <text x="455" y="627" font-size="13" font-weight="bold" fill="#1e293b">local</text>
+    <text x="455" y="643" fill="#4b5563">e.g. VMware Workstation</text>
+    <rect x="560" y="610" width="190" height="40" rx="6" fill="#ffffff" stroke="#64748b"/>
+    <text x="655" y="627" font-size="13" font-weight="bold" fill="#1e293b">kvm</text>
+    <text x="655" y="643" fill="#4b5563">libvirt host</text>
+    <rect x="760" y="610" width="190" height="40" rx="6" fill="#ffffff" stroke="#64748b"/>
+    <text x="855" y="627" font-size="13" font-weight="bold" fill="#1e293b">azure</text>
+    <text x="855" y="643" fill="#4b5563">Microsoft Azure</text>
+  </g>
+
+  <text x="960" y="680" font-size="10" fill="#9ca3af" text-anchor="end">bottom to top: each layer runs on the one below</text>
+</svg>

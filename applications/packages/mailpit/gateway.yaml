@@ -1,0 +1,91 @@
+# Mailpit web UI behind Microgateway: OIDC relying party for /mailpit/ (client mailpit at the IAM
+# authorization server 'demo', administrators with Airlock 2FA or passkey). Identity propagation:
+# the ID token claim mailpit_authorization ("Basic base64(admin:<password>)", secret iam-credentials)
+# is forwarded as Authorization header, Mailpit checks it against MP_UI_AUTH.
+# Token endpoint and JWKS: IAM service in the cluster; authorization endpoint: public URL.
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: OIDCProvider
+metadata:
+  name: iam-demo
+spec:
+  static:
+    issuer: https://@@FQDN@@/auth-login/rest/oauth2/authorization-servers/demo
+    endpoints:
+      authorization:
+        uri: https://@@FQDN@@/auth-login/oauth2/v3/demo/authorize
+      token:
+        uri: http://iam.iam.svc.cluster.local/auth-login/rest/oauth2/authorization-servers/demo/token
+    tokenValidation:
+      idToken:
+        signatureVerification:
+          jwksRef:
+            name: iam-demo
+---
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: JWKS
+metadata:
+  name: iam-demo
+spec:
+  provider:
+    remote:
+      uri: http://iam.iam.svc.cluster.local/auth-login/rest/oauth2/authorization-servers/demo/jwks
+---
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: OIDCRelyingParty
+metadata:
+  name: mailpit
+spec:
+  clientID: mailpit
+  credentials:
+    clientSecret:
+      method: BasicAuth
+      # key client.secret, created by OpenTofu
+      secretRef:
+        name: mailpit-oidc-client
+  oidcProviderRef:
+    name: iam-demo
+  redirectURI: https://@@FQDN@@/mailpit/_oidc/callback
+  pathMapping:
+    redirectPath:
+      matcher:
+        exact: /mailpit/_oidc/callback
+    logoutPath:
+      matcher:
+        exact: /mailpit/_oidc/logout
+  scopes:
+  - openid
+---
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: IdentityPropagation
+metadata:
+  name: mailpit-basic-auth
+spec:
+  header:
+    name: Authorization
+    value:
+      source:
+        oidc:
+          idToken:
+            claim: mailpit_authorization
+---
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: AccessControlPolicy
+metadata:
+  name: mailpit
+spec:
+  policies:
+    - authorization:
+        authentication:
+          oidc:
+            oidcRelyingPartyRef:
+              name: mailpit
+      identityPropagation:
+        actions:
+          - identityPropagationRef:
+              name: mailpit-basic-auth
+        # only value in 5.2.2; without the header, Mailpit answers 401
+        onFailure: Pass
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: mailpit

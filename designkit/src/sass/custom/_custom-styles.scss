@@ -1,0 +1,132 @@
+// Custom CSS/SASS to customize the look and feel of the Loginapp UI beyond using the product's SASS variables.
+// An example is provided in the online documentation: https://docs.airlock.com/iam/latest/?topic=IAM-00000114
+//
+
+// ---------------------------------------------------------------------------------------------------
+// Airlock IAM Salesdemo: a few additions beyond the SASS variables - kept small on purpose
+// (the design kit will be replaced in 2027, customizations are not migrated automatically)
+// ---------------------------------------------------------------------------------------------------
+
+// cards: subtle shadow instead of a border
+.iam-card {
+    border: none;
+    box-shadow: 0 1px 3px rgba(31, 42, 51, 0.08), 0 8px 24px rgba(31, 42, 51, 0.06);
+}
+
+// card titles: no separating line, a bit more weight
+.iam-card-header {
+    border-bottom: none;
+    font-weight: 600;
+}
+
+// primary buttons: full width, teal on hover and focus
+.btn-primary {
+    width: 100%;
+    &:hover,
+    &:focus {
+        background-color: darken(#1F7099, 6%);
+        border-color: darken(#1F7099, 6%);
+    }
+    &:focus-visible {
+        box-shadow: 0 0 0 0.2rem rgba(#00BFBF, 0.45);
+    }
+}
+
+// form fields: teal focus ring
+.form-control:focus {
+    box-shadow: 0 0 0 0.2rem rgba(#00BFBF, 0.25);
+}
+
+// links: underline only on hover
+a.iam-general-link:hover {
+    text-decoration: underline;
+}
+
+// application portal: white tiles with a light border and shadow ("raised"), light blue on hover;
+// icons per target (id iamApplicationPortalTarget-<identifier>), others: IAM icon
+.iam-application-portal-target {
+    background-color: #fff;
+    background-size: auto 2.5rem;
+    border: 1px solid #dde3e8;
+    border-radius: 0.75rem;
+    box-shadow: 0 1px 2px rgba(31, 42, 51, 0.06), 0 4px 12px rgba(31, 42, 51, 0.08);
+    color: #1F7099;
+    transition: box-shadow 0.15s ease-in-out, background-color 0.15s ease-in-out;
+}
+
+.iam-application-portal-target-link:hover > .iam-application-portal-target,
+.iam-application-portal-target-link:focus-visible > .iam-application-portal-target {
+    background-color: rgba(#1F7099, 0.06);
+    border-color: #00BFBF;
+    box-shadow: 0 2px 4px rgba(31, 42, 51, 0.08), 0 8px 20px rgba(31, 42, 51, 0.12);
+    color: #1F7099;
+}
+
+$demo-portal-icons: (
+    'adminapp': 'icon-adminapp.svg',
+    'adminer': 'icon-adminer.svg',
+    'mailpit': 'icon-mailpit.svg',
+    'argocd': 'icon-argocd.svg',
+    'headlamp': 'icon-headlamp.svg',
+    'airlock2fa-device-management': 'icon-airlock2fa.svg',
+    'airlock2fa-recovery-info': 'icon-airlock2fa.svg',
+);
+
+@each $target, $icon in $demo-portal-icons {
+    #iamApplicationPortalTarget-#{$target} .iam-application-portal-target {
+        background-image: url(custom-asset('img/#{$icon}'));
+    }
+}
+
+// application portal (body id iamApplicationPortal): more tiles per row only where the content area
+// is widened too, so tiles keep about their default width (~280px); other pages unchanged.
+// below 1200px: design kit default (3 per row, content max. 940px)
+@media (min-width: 1200px) {
+    body#iamApplicationPortal .iam-content-container {
+        max-width: 1200px;
+    }
+
+    body#iamApplicationPortal .iam-application-portal-targets {
+        flex: 0 0 25%;
+        max-width: 25%;
+    }
+}
+
+@media (min-width: 1400px) {
+    body#iamApplicationPortal .iam-content-container {
+        max-width: 1400px;
+    }
+
+    body#iamApplicationPortal .iam-application-portal-targets {
+        flex: 0 0 20%;
+        max-width: 20%;
+    }
+}
+
+// login page: password reset and self-registration links styled as buttons (texts in the i18n files),
+// aligned like the product's buttons: floating right (the first one is the rightmost), the next button row
+// below them; full width below 768px like the product's buttons
+iam-text-message:has(> #publicSelfService),
+iam-text-message:has(> #userSelfRegistration) {
+    float: right;
+    margin-left: 1rem;
+}
+
+iam-text-message:has(> #publicSelfService) + iam-button-row,
+iam-text-message:has(> #userSelfRegistration) + iam-button-row {
+    clear: both;
+}
+
+@media (max-width: 767.98px) {
+    iam-text-message:has(> #publicSelfService),
+    iam-text-message:has(> #userSelfRegistration) {
+        float: none;
+        display: block;
+        margin-left: 0;
+    }
+
+    #publicSelfService .iam-btn,
+    #userSelfRegistration .iam-btn {
+        width: 100%;
+    }
+}

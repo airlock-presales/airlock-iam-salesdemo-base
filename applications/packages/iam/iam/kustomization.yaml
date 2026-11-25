@@ -1,0 +1,29 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: iam
+
+# Airlock IAM - bespoke manifests (derived from airlock-presales/airlock-iam-helm-chart 8.6.5)
+resources:
+- mariadb.yaml
+- valkey.yaml
+- statefulset.yaml
+- service.yaml
+# Microgateway: routes and security policies
+- gateway/httproutes.yaml
+- gateway/httproutes-admin.yaml
+- gateway/admin-ip-allowlist.yaml
+- gateway/contentsecuritypolicies.yaml
+- gateway/denyrules.yaml
+- gateway/headerrewrites.yaml
+- gateway/parser-limits-telemetry.yaml
+- gateway/apiprotection.yaml
+- gateway/openapi-specs.yaml
+- gateway/secure-cookie.yaml
+
+configMapGenerator:
+- name: iam-init
+  files:
+  - scripts/init_instance
+  - scripts/init_config
+  - scripts/init_lua
+  - scripts/init_db

@@ -1,0 +1,24 @@
+#! /bin/bash
+# Project settings are mounted from a configmap and updated with a delay: wait until they match the
+# hash of this rendering (set by OpenTofu, passed on by the bootstrap application) - otherwise old
+# values would be rendered and cached under the new hash
+_settings_file=/home/argocd/project-settings/settings
+if [[ -n "${ARGOCD_ENV_SETTINGS_HASH:-}" ]]; then
+    for _i in $(seq 1 30); do
+        [[ "$(sha256sum "${_settings_file}" | cut -c1-16)" == "${ARGOCD_ENV_SETTINGS_HASH}" ]] && break
+        if [[ ${_i} -eq 30 ]]; then
+            echo "project settings not yet updated (expected hash ${ARGOCD_ENV_SETTINGS_HASH})" >&2
+            exit 1
+        fi
+        sleep 2
+    done
+fi
+
+
+SETTINGS="${SETTINGS:-/home/argocd/project-settings/settings}"
+
+pool="$(yq '.kubernetes.lb.pool' ${SETTINGS})"
+sed -i -e "s,@@POOL@@,${pool}," servicegroup.yaml
+
+subnet="$(yq '.kubernetes.lb.subnet' ${SETTINGS})"
+sed -i -e "s,@@SUBNET@@,${subnet}," servicegroup.yaml

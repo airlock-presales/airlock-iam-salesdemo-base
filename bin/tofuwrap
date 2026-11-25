@@ -1,0 +1,122 @@
+#!/bin/bash
+#
+# Simple wrapper around 'tofu' for Airlock IAM Salesdemo
+#
+# Run from the instance directory, which contains
+# - variables.auto.tfvars   instance settings, sops-encrypted
+# - release                 release (git tag or branch) of the salesdemo base repo
+# and receives
+# - state/                  OpenTofu state, encrypted with sec_state_passphrase
+# - output/                 talosconfig, kubeconfig etc.
+# - .tofu/                  OpenTofu working data (providers, modules)
+# - locks/                  provider lock files (.terraform.lock.hcl) per phase, to be committed - tofu
+#                           keeps them in the root project directory (the base checkout); they are copied
+#                           there before each run and back afterwards
+
+set -euo pipefail
+
+function usage()
+{
+  echo "Usage: $(basename "$0") <phase> <command> [<tofu options>]"
+  echo "       Simple wrapper around 'tofu' for Airlock IAM Salesdemo"
+  echo "       Run from the instance directory."
+  echo "       Parameters:"
+  echo "       <phase>"
+  echo "         1       - infrastructure"
+  echo "         2       - talos"
+  echo "         3       - argocd & salesdemo applications"
+  echo "       <command>"
+  echo "         init    - initialise OpenTofu project"
+  echo "         plan    - plan changes"
+  echo "         apply   - apply changes"
+  echo "         destroy - remove resources"
+  echo "         output  - show outputs"
+  echo "       <tofu options>"
+  echo "         passed on to tofu, e.g. 'init -upgrade' to update the providers (and the lock file)"
+  exit 1
+}
+
+function die()
+{
+  echo "ERROR: $1" >&2
+  exit 1
+}
+
+[[ $# -lt 2 ]] && usage
+[[ -n "${SOPS_AGE_KEY_FILE:-}" ]] || die "SOPS_AGE_KEY_FILE must be set"
+[[ -f variables.auto.tfvars ]] || die "variables.auto.tfvars not found - run from the instance directory"
+[[ -f release ]] || die "file 'release' not found - run from the instance directory"
+
+SALESDEMO_DIR="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
+INSTANCE_DIR="${PWD}"
+RELEASE="$(tr -d '[:space:]' < release)"
+
+case $1 in
+  1|2|3) ;;
+  *) die "Invalid phase" ;;
+esac
+
+case $2 in
+  init|plan|apply|destroy|output) ;;
+  *) die "Invalid command" ;;
+esac
+
+# warn if the salesdemo checkout does not match the instance's release
+checkout="$(git -C "${SALESDEMO_DIR}" describe --tags --exact-match 2>/dev/null || git -C "${SALESDEMO_DIR}" rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+if [[ "${checkout}" != "${RELEASE}" ]]; then
+  echo "WARNING: salesdemo checkout is at '${checkout}', instance release is '${RELEASE}'" >&2
+fi
+
+# decrypt settings to memory-backed storage where available, never into a git working tree
+tmpbase="${XDG_RUNTIME_DIR:-}"
+[[ -n "${tmpbase}" && -d "${tmpbase}" ]] || tmpbase="/dev/shm"
+[[ -d "${tmpbase}" ]] || tmpbase="${TMPDIR:-/tmp}"
+DECRYPTED_DIR="$(mktemp -d -p "${tmpbase}" salesdemo.XXXXXX)"
+trap 'rm -rf "${DECRYPTED_DIR}"' EXIT
+DECRYPTED="${DECRYPTED_DIR}/variables.auto.tfvars"
+sops --decrypt variables.auto.tfvars > "${DECRYPTED}"
+
+case $1 in
+  1)
+    # one root project per platform
+    platform="$(sed -n -E 's/^[[:space:]]*platform[[:space:]]*=[[:space:]]*"([a-z0-9]+)".*/\1/p' "${DECRYPTED}")"
+    [[ -n "${platform}" ]] || die "setting 'platform' not found"
+    [[ -d "${SALESDEMO_DIR}/01-infrastructure/platforms/${platform}" ]] || die "unknown platform '${platform}'"
+    phase="01-infrastructure/platforms/${platform}"
+    ;;
+  2) phase="02-talos" ;;
+  3) phase="03-argocd" ;;
+esac
+
+mkdir -p "${INSTANCE_DIR}/state"
+export TF_DATA_DIR="${INSTANCE_DIR}/.tofu/${phase//\//-}"
+
+# no interactive prompts for missing settings (fail instead); apply/destroy still ask for confirmation
+noinput=()
+[[ "$2" == "init" || "$2" == "plan" ]] && noinput=(-input=false)
+
+# provider lock file of the instance: into the root project before the run (a lock file of another
+# instance sharing the checkout is removed), back into the instance afterwards - also after a failure
+LOCK_FILE="${INSTANCE_DIR}/locks/${phase//\//-}.terraform.lock.hcl"
+PROJECT_LOCK="${SALESDEMO_DIR}/${phase}/.terraform.lock.hcl"
+if [[ -f "${LOCK_FILE}" ]]; then
+  cp "${LOCK_FILE}" "${PROJECT_LOCK}"
+else
+  rm -f "${PROJECT_LOCK}"
+fi
+
+command="$2"
+shift 2
+echo "tofu -chdir=${SALESDEMO_DIR}/${phase} ${command} $*" >&2
+rc=0
+# options last: 'output' takes the output name as positional argument after the flags
+tofu -chdir="${SALESDEMO_DIR}/${phase}" "${command}" "${noinput[@]}" \
+  -var "basedir=${INSTANCE_DIR}" \
+  -var "demo_release=${RELEASE}" \
+  -var-file "${DECRYPTED}" "$@" || rc=$?
+
+if [[ -f "${PROJECT_LOCK}" ]]; then
+  mkdir -p "${INSTANCE_DIR}/locks"
+  cmp -s "${PROJECT_LOCK}" "${LOCK_FILE}" 2>/dev/null || cp "${PROJECT_LOCK}" "${LOCK_FILE}"
+fi
+exit "${rc}"

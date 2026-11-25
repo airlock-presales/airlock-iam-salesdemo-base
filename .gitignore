@@ -1,0 +1,8 @@
+/age.keys
+/files
+# provider lock files: per instance (locks/ in the instance repository, bin/tofuwrap)
+.terraform.lock.hcl
+/.terraform/
+/terraform.tfstate*
+# design kit build output and working directories (sdk build/dev)
+/designkit/build/

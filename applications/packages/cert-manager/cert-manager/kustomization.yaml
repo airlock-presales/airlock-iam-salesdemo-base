@@ -1,0 +1,47 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: cert-manager
+
+resources:
+  - namespace.yaml
+
+helmCharts:
+- name: cert-manager
+  repo: https://charts.jetstack.io
+  version: v1.20.3
+  releaseName: cert-manager
+  includeCRDs: false
+  valuesInline:
+    # Enable prometheus metrics
+    prometheus:
+      enabled: false
+      servicemonitor:
+        enabled: false
+    # Resource limits
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        memory: 256Mi
+    # Webhook configuration
+    webhook:
+      resources:
+        requests:
+          cpu: 25m
+          memory: 64Mi
+        limits:
+          memory: 128Mi
+    # CA injector
+    cainjector:
+      resources:
+        requests:
+          cpu: 50m
+          memory: 128Mi
+        limits:
+          memory: 256Mi
+    # CRDs are installed separately (application cert-manager-crds)
+    crds:
+      enabled: false
+    config:
+      enableGatewayAPI: true

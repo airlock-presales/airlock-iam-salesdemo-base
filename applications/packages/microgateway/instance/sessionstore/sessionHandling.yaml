@@ -1,0 +1,14 @@
+---
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: SessionHandling
+metadata:
+  name: sessionagent
+  namespace: airlock-gateway
+spec:
+  # lifetime 4h (default 12h) - IAM: Loginapp session lifetime 4h, refresh tokens of the
+  # authorization server 'demo' 4h1m; idle timeout: default (10m)
+  defaultTimeouts:
+    lifetime: 4h
+  persistence:
+    redisProviderRef:
+      name: sessionagent

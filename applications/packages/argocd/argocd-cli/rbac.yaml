@@ -1,0 +1,13 @@
+# Debug container: full cluster access for kubectl/k9s/argocd --core
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: argocd-cli
+subjects:
+- kind: ServiceAccount
+  name: argocd-cli
+  namespace: argocd
+roleRef:
+  kind: ClusterRole
+  name: cluster-admin
+  apiGroup: rbac.authorization.k8s.io

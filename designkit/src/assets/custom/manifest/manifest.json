@@ -1,0 +1,21 @@
+{
+  "short_name": "IAM Demo",
+  "name": "Airlock IAM Salesdemo",
+  "icons": [
+    {
+      "src": "../img/icons-192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "../img/icons-512.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "../../../app",
+  "background_color": "#f4f6f8",
+  "display": "standalone",
+  "scope": "../../../",
+  "theme_color": "#1F7099"
+}

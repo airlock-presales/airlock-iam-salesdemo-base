@@ -1,0 +1,194 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.18.0
+  name: lbnodeagents.purelb.io
+spec:
+  group: purelb.io
+  names:
+    kind: LBNodeAgent
+    listKind: LBNodeAgentList
+    plural: lbnodeagents
+    shortNames:
+    - lbna
+    - lbnas
+    singular: lbnodeagent
+  scope: Namespaced
+  versions:
+  - name: v2
+    schema:
+      openAPIV3Schema:
+        description: |-
+          LBNodeAgent is the top-level custom resource for configuring node
+          agents. It contains the usual CRD metadata, and the agent spec and
+          status.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: LBNodeAgentSpec configures the node agents.
+            properties:
+              local:
+                description: |-
+                  Local configures announcement of service addresses by configuring
+                  the underlying operating system networking.
+                properties:
+                  addressConfig:
+                    description: |-
+                      AddressConfig configures how VIP addresses are added to interfaces.
+                      This allows control over address lifetimes and flags to prevent
+                      conflicts with CNI plugins like Flannel that inspect address flags.
+                    properties:
+                      dummyInterface:
+                        description: DummyInterface configures addresses on the dummy
+                          interface (e.g., kube-lb0).
+                        properties:
+                          noPrefixRoute:
+                            description: |-
+                              NoPrefixRoute when true prevents the kernel from automatically creating
+                              a prefix route for the address.
+                              Default: true for local interface, false for dummy interface.
+                            type: boolean
+                          preferredLifetime:
+                            description: |-
+                              PreferredLifetime is the preferred lifetime in seconds. Must be <= ValidLifetime.
+                              A value of 0 means permanent. Defaults to ValidLifetime if not specified.
+                            minimum: 0
+                            type: integer
+                          validLifetime:
+                            description: |-
+                              ValidLifetime is the valid lifetime in seconds for addresses added to this
+                              interface. A value of 0 means permanent (no expiry). When non-zero, addresses
+                              will not have the IFA_F_PERMANENT flag, which prevents CNI plugins like
+                              Flannel from incorrectly selecting VIPs as node addresses.
+                              Minimum value when non-zero is 60 seconds.
+                              Default: 300 for local interface, 0 for dummy interface.
+                            minimum: 0
+                            type: integer
+                        type: object
+                      localInterface:
+                        description: LocalInterface configures addresses on the local
+                          interface (e.g., eth0).
+                        properties:
+                          noPrefixRoute:
+                            description: |-
+                              NoPrefixRoute when true prevents the kernel from automatically creating
+                              a prefix route for the address.
+                              Default: true for local interface, false for dummy interface.
+                            type: boolean
+                          preferredLifetime:
+                            description: |-
+                              PreferredLifetime is the preferred lifetime in seconds. Must be <= ValidLifetime.
+                              A value of 0 means permanent. Defaults to ValidLifetime if not specified.
+                            minimum: 0
+                            type: integer
+                          validLifetime:
+                            description: |-
+                              ValidLifetime is the valid lifetime in seconds for addresses added to this
+                              interface. A value of 0 means permanent (no expiry). When non-zero, addresses
+                              will not have the IFA_F_PERMANENT flag, which prevents CNI plugins like
+                              Flannel from incorrectly selecting VIPs as node addresses.
+                              Minimum value when non-zero is 60 seconds.
+                              Default: 300 for local interface, 0 for dummy interface.
+                            minimum: 0
+                            type: integer
+                        type: object
+                    type: object
+                  dummyInterface:
+                    default: kube-lb0
+                    description: |-
+                      DummyInterface specifies the name of the dummy interface to use for
+                      announcement of remote addresses (addresses on different subnets).
+                      The dummy interface is created automatically if it doesn't exist.
+                    type: string
+                  garpConfig:
+                    description: |-
+                      GARPConfig configures Gratuitous ARP behavior for address announcements.
+                      GARP packets notify network equipment (switches, routers) that the
+                      IP-to-MAC binding has changed, enabling faster failover.
+                    properties:
+                      count:
+                        default: 3
+                        description: |-
+                          Count is the number of GARP packets to send. Sending multiple GARPs
+                          increases reliability as network equipment may miss individual packets.
+                        maximum: 10
+                        minimum: 1
+                        type: integer
+                      enabled:
+                        default: true
+                        description: Enabled determines whether GARP packets should
+                          be sent.
+                        type: boolean
+                      initialDelay:
+                        default: 100ms
+                        description: |-
+                          InitialDelay is the time to wait after adding an address before sending
+                          the first GARP. This allows time for the address to be fully configured.
+                          Format: Go duration string (e.g., "100ms", "1s").
+                        type: string
+                      interval:
+                        default: 500ms
+                        description: |-
+                          Interval is the time between GARP packets when Count > 1.
+                          Format: Go duration string (e.g., "500ms", "1s").
+                        type: string
+                      verifyBeforeSend:
+                        default: true
+                        description: |-
+                          VerifyBeforeSend when true causes the announcer to verify it still
+                          owns the address (won the election) before sending each GARP packet.
+                          This prevents announcing addresses during rapid failover scenarios.
+                        type: boolean
+                    type: object
+                  interfaces:
+                    description: |-
+                      Interfaces specifies additional interfaces to include in subnet detection
+                      for the subnet-aware election. By default, only the interface with
+                      the default route is used. Add interface names here to include
+                      additional subnets in the election.
+                    items:
+                      type: string
+                    type: array
+                  localInterface:
+                    default: default
+                    description: |-
+                      LocalInterface specifies the interface to use for announcement of
+                      local addresses (addresses on the same subnet as the node).
+                      Can be:
+                        - "default": use the interface with the default route (recommended)
+                        - A regex pattern to match interface names (e.g., "eth.*", "enp0s.*")
+                    type: string
+                type: object
+            type: object
+          status:
+            description: LBNodeAgentStatus contains runtime information about the
+              node agent.
+            properties:
+              activeLeases:
+                description: ActiveLeases is the number of active election leases
+                  this node holds.
+                type: integer
+            type: object
+        required:
+        - spec
+        type: object
+    served: true
+    storage: true

@@ -1,0 +1,63 @@
+#! /bin/bash
+# init_lua - installs the Lua library lua-cURL into the instance (scripting/lua), once
+#
+# Used by the Lua scripts of the identity proofing (PXL Vision); IAM bundles Lua 5.4,
+# lua-cjson and luasocket, but no HTTP(S) client.
+# Runs as root in a UBI 9 container (same OS family and glibc as the IAM image, which
+# provides libcurl at runtime): builds Lua (headers only) and LuaRocks in a temporary
+# directory and installs lua-cURL with LuaRocks into the instance's Lua tree.
+
+set -euo pipefail
+
+function log ()
+{
+    echo "$(date +"%Y-%m-%d %H:%M:%S") $*"
+}
+
+function die ()
+{
+    log "ERROR: $*"
+    exit 1
+}
+
+for f in INSTANCE_DIR INIT_INSTANCE LUA_VERSION LUAROCKS_VERSION LUA_CURL_VERSION
+do
+  [[ -n "${!f:-}" ]] || die "${f} not set"
+done
+
+tree="${INSTANCE_DIR}/${INIT_INSTANCE}/scripting/lua"
+marker="${tree}/.lua-curl-${LUA_CURL_VERSION}"
+
+if [[ -f "${marker}" ]]; then
+    log "lua-cURL ${LUA_CURL_VERSION} already installed"
+    exit 0
+fi
+
+log "Installing build dependencies"
+dnf install -y --nodocs --setopt=install_weak_deps=False gcc make tar gzip unzip libcurl-devel > /dev/null \
+    || die "Failed to install build dependencies"
+
+build="$(mktemp -d)"
+trap 'rm -rf "${build}"' EXIT
+
+log "Building Lua ${LUA_VERSION} (for headers) and LuaRocks ${LUAROCKS_VERSION}"
+curl -fsSL --retry 5 --retry-all-errors "https://www.lua.org/ftp/lua-${LUA_VERSION}.tar.gz" | tar -xz -C "${build}" \
+    || die "Failed to download Lua ${LUA_VERSION}"
+( make -C "${build}/lua-${LUA_VERSION}/src" -s linux-noreadline \
+    && make -C "${build}/lua-${LUA_VERSION}" -s install INSTALL_TOP="${build}/lua" ) > /dev/null \
+    || die "Failed to build Lua"
+curl -fsSL --retry 5 --retry-all-errors "https://luarocks.github.io/luarocks/releases/luarocks-${LUAROCKS_VERSION}.tar.gz" | tar -xz -C "${build}" \
+    || die "Failed to download LuaRocks ${LUAROCKS_VERSION}"
+( cd "${build}/luarocks-${LUAROCKS_VERSION}" \
+    && ./configure --prefix="${build}/luarocks" --with-lua="${build}/lua" > /dev/null \
+    && make -s install > /dev/null ) || die "Failed to build LuaRocks"
+
+log "Installing lua-cURL ${LUA_CURL_VERSION} into ${tree}"
+mkdir -p "${tree}"
+"${build}/luarocks/bin/luarocks" install --tree "${tree}" --no-manifest --no-doc \
+    lua-curl "${LUA_CURL_VERSION}" CURL_INCDIR=/usr/include CURL_LIBDIR=/usr/lib64 \
+    || die "Failed to install lua-cURL"
+
+touch "${marker}"
+chown -R 1000:1000 "${tree}"
+log "lua-cURL ${LUA_CURL_VERSION} installed"

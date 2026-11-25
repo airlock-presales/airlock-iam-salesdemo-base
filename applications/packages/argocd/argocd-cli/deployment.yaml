@@ -1,0 +1,39 @@
+# Debug container with argocd, kubectl, kubecolor and k9s, e.g.
+#   kubectl -n argocd exec -it deploy/argocd-cli -- k9s
+#   kubectl -n argocd exec -it deploy/argocd-cli -- bash
+#   kubectl -n argocd exec deploy/argocd-cli -- argocd app list
+# argocd runs in core mode (ARGOCD_OPTS=--core): Kubernetes API with the service account argocd-cli,
+# no login, independent of argocd-server and the Microgateway/IAM login
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: argocd-cli
+  labels:
+    app.kubernetes.io/name: argocd-cli
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: argocd-cli
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: argocd-cli
+    spec:
+      serviceAccountName: argocd-cli
+      # optional, created by OpenTofu if the package on ghcr.io is not public (setting k8s_ghcr_pull)
+      imagePullSecrets:
+      - name: ghcr-pull
+      containers:
+      - name: cli
+        image: ghcr.io/airlock-presales/argocd-cli:3.6.2-1
+        env:
+        - name: ARGOCD_OPTS
+          value: "--core"
+        - name: TZ
+          value: "@@TIMEZONE@@"
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi

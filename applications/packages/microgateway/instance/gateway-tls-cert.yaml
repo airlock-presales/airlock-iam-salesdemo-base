@@ -1,0 +1,17 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: gateway-tls-cert
+  namespace: airlock-gateway
+spec:
+  secretName: gateway-tls-cert
+  dnsNames:
+  - "@@FQDN@@"
+  issuerRef:
+    name: "@@ISSUER@@"
+    kind: ClusterIssuer
+  privateKey:
+    size: 4096
+  usages:
+  - server auth
+  - digital signature

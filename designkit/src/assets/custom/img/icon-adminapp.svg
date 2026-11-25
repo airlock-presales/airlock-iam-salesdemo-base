@@ -1,0 +1,30 @@
+
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 64 64"
+     width="64" height="64">
+  <rect width="64" height="64" rx="12" fill="#F8FAFC"/>
+
+  <!-- Settings gear -->
+  <g transform="translate(43 25)" fill="#4B91D1">
+    <path d="M-4-18 H4 L5.5-13.5
+      9-12 13-14 18-9 15-5
+      16-1 20 1 V8 L15 9
+      13 13 15 17 10 21 6 18
+      2 19 0 23 H-7 L-8 18
+      -12 16 -16 18 -20 13 -17 9
+      -18 5 -22 3 V-4 L-17-5
+      -15-9 -17-13 -12-18 -8-15 Z"/>
+    <circle r="9" fill="#F8FAFC"/>
+  </g>
+
+  <!-- Administrator -->
+  <circle cx="24" cy="25" r="10" fill="#123E70"/>
+  <path d="M7 53 C7 42 14 38 24 38
+           S41 42 41 53 V56 H7 Z"
+        fill="#123E70"/>
+  <path d="M20 39 L24 45 L28 39
+           L26 48 L24 54 L22 48 Z"
+        fill="#FFFFFF"/>
+  <path d="M22 42 H26 L27 45 L24 48 L21 45 Z"
+        fill="#123E70"/>
+</svg>

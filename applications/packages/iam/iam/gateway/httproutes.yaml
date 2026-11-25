@@ -1,0 +1,205 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: iam-adminapp
+spec:
+  hostnames:
+    - '@@FQDN@@'
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: airlock-gateway
+      namespace: airlock-gateway
+      sectionName: https
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: iam
+          port: 80
+          weight: 1
+      matches:
+        - path:
+            type: PathPrefix
+            value: /auth-admin/
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: iam-adminapp-config-editor
+spec:
+  hostnames:
+    - '@@FQDN@@'
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: airlock-gateway
+      namespace: airlock-gateway
+      sectionName: https
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: iam
+          port: 80
+          weight: 1
+      matches:
+        - path:
+            type: PathPrefix
+            value: /auth-admin/editConfig/
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: iam-adminapp-rest
+spec:
+  hostnames:
+    - '@@FQDN@@'
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: airlock-gateway
+      namespace: airlock-gateway
+      sectionName: https
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: iam
+          port: 80
+          weight: 1
+      matches:
+        - path:
+            type: PathPrefix
+            value: /auth-admin/rest/
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: iam-loginapp
+spec:
+  hostnames:
+    - '@@FQDN@@'
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: airlock-gateway
+      namespace: airlock-gateway
+      sectionName: https
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: iam
+          port: 80
+          weight: 1
+      matches:
+        - path:
+            type: PathPrefix
+            value: /auth-login/
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: iam-loginapp-rest-oauth2
+spec:
+  hostnames:
+    - '@@FQDN@@'
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: airlock-gateway
+      namespace: airlock-gateway
+      sectionName: https
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: iam
+          port: 80
+          weight: 1
+      matches:
+        - path:
+            type: PathPrefix
+            value: /auth-login/rest/oauth2/
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: iam-loginapp-rest-protected
+spec:
+  hostnames:
+    - '@@FQDN@@'
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: airlock-gateway
+      namespace: airlock-gateway
+      sectionName: https
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: iam
+          port: 80
+          weight: 1
+      matches:
+        - path:
+            type: PathPrefix
+            value: /auth-login/rest/protected/
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: iam-loginapp-rest-public
+spec:
+  hostnames:
+    - '@@FQDN@@'
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: airlock-gateway
+      namespace: airlock-gateway
+      sectionName: https
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: iam
+          port: 80
+          weight: 1
+      matches:
+        - path:
+            type: PathPrefix
+            value: /auth-login/rest/public/
+      # flow steps that wait in a script (e.g. account recovery confirmation, PXL Vision result: up to
+      # 20 s) - longer than the default (Envoy: 15 s), a bit above IAM's script limit (30 s)
+      timeouts:
+        request: 35s
+        backendRequest: 35s
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: iam-redirect
+spec:
+  hostnames:
+    - '@@FQDN@@'
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: airlock-gateway
+      namespace: airlock-gateway
+      sectionName: https
+  rules:
+    - filters:
+        - requestRedirect:
+            path:
+              replaceFullPath: /auth-login
+              type: ReplaceFullPath
+            statusCode: 302
+          type: RequestRedirect
+      matches:
+        - path:
+            type: Exact
+            value: /

@@ -1,0 +1,18 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: airlock-microgateway-system
+helmCharts:
+- name: microgateway
+  repo: oci://quay.io/airlockcharts
+  version: 5.2.2
+  releaseName: airlock-microgateway
+  includeCRDs: true
+
+patches:
+  # never delete or prune CRDs (and with them all custom resources)
+  - target:
+      kind: CustomResourceDefinition
+    patch: |
+      - op: add
+        path: /metadata/annotations/argocd.argoproj.io~1sync-options
+        value: Prune=false,Delete=false

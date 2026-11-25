@@ -1,0 +1,71 @@
+# Headlamp behind Microgateway: OIDC relying party for /headlamp (client headlamp at the IAM
+# authorization server 'demo', administrators with Airlock 2FA or passkey). Headlamp has no login
+# of its own (unsafeUseServiceAccountToken), so this policy is the only access control.
+# Token endpoint and JWKS: IAM service in the cluster; authorization endpoint: public URL.
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: OIDCProvider
+metadata:
+  name: iam-demo
+spec:
+  static:
+    issuer: https://@@FQDN@@/auth-login/rest/oauth2/authorization-servers/demo
+    endpoints:
+      authorization:
+        uri: https://@@FQDN@@/auth-login/oauth2/v3/demo/authorize
+      token:
+        uri: http://iam.iam.svc.cluster.local/auth-login/rest/oauth2/authorization-servers/demo/token
+    tokenValidation:
+      idToken:
+        signatureVerification:
+          jwksRef:
+            name: iam-demo
+---
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: JWKS
+metadata:
+  name: iam-demo
+spec:
+  provider:
+    remote:
+      uri: http://iam.iam.svc.cluster.local/auth-login/rest/oauth2/authorization-servers/demo/jwks
+---
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: OIDCRelyingParty
+metadata:
+  name: headlamp
+spec:
+  clientID: headlamp
+  credentials:
+    clientSecret:
+      method: BasicAuth
+      # key client.secret, created by OpenTofu
+      secretRef:
+        name: headlamp-oidc-client
+  oidcProviderRef:
+    name: iam-demo
+  redirectURI: https://@@FQDN@@/headlamp/_oidc/callback
+  pathMapping:
+    redirectPath:
+      matcher:
+        exact: /headlamp/_oidc/callback
+    logoutPath:
+      matcher:
+        exact: /headlamp/_oidc/logout
+  scopes:
+  - openid
+---
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: AccessControlPolicy
+metadata:
+  name: headlamp
+spec:
+  policies:
+    - authorization:
+        authentication:
+          oidc:
+            oidcRelyingPartyRef:
+              name: headlamp
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: headlamp

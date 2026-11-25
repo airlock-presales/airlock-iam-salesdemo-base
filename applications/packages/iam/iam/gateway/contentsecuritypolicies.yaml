@@ -1,0 +1,156 @@
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: ContentSecurityPolicy
+metadata:
+  name: iam-adminapp
+spec:
+  secured:
+    filter:
+      denyRulesRef:
+        name: iam-adminapp
+    headerRewritesRef:
+      name: iam-adminapp
+    limitsRef:
+      name: iam
+    parserRef:
+      name: iam
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: iam-adminapp
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: iam-adminapp-local
+---
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: ContentSecurityPolicy
+metadata:
+  name: iam-adminapp-config-editor
+spec:
+  secured:
+    filter:
+      denyRulesRef:
+        name: iam-adminapp-config-editor
+    headerRewritesRef:
+      name: iam-adminapp-config-editor
+    limitsRef:
+      name: iam
+    parserRef:
+      name: iam
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: iam-adminapp-config-editor
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: iam-adminapp-config-editor-local
+---
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: ContentSecurityPolicy
+metadata:
+  name: iam-adminapp-rest
+spec:
+  secured:
+    apiProtectionRef:
+      name: iam-adminapp-rest
+    filter:
+      denyRulesRef:
+        name: iam-adminapp-rest
+    headerRewritesRef:
+      name: iam-adminapp-rest
+    limitsRef:
+      name: iam
+    parserRef:
+      name: iam
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: iam-adminapp-rest
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: iam-adminapp-rest-local
+---
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: ContentSecurityPolicy
+metadata:
+  name: iam-loginapp
+spec:
+  secured:
+    filter:
+      denyRulesRef:
+        name: iam-loginapp
+    headerRewritesRef:
+      name: iam-loginapp
+    limitsRef:
+      name: iam
+    parserRef:
+      name: iam
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: iam-loginapp
+---
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: ContentSecurityPolicy
+metadata:
+  name: iam-loginapp-rest-oauth2
+spec:
+  secured:
+    apiProtectionRef:
+      name: iam-loginapp-rest-oauth2
+    filter:
+      denyRulesRef:
+        name: iam-loginapp-rest-oauth2
+    headerRewritesRef:
+      name: iam-loginapp-rest-oauth2
+    limitsRef:
+      name: iam
+    parserRef:
+      name: iam
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: iam-loginapp-rest-oauth2
+---
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: ContentSecurityPolicy
+metadata:
+  name: iam-loginapp-rest-protected
+spec:
+  secured:
+    apiProtectionRef:
+      name: iam-loginapp-rest-protected
+    filter:
+      denyRulesRef:
+        name: iam-loginapp-rest-protected
+    headerRewritesRef:
+      name: iam-loginapp-rest-protected
+    limitsRef:
+      name: iam
+    parserRef:
+      name: iam
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: iam-loginapp-rest-protected
+---
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: ContentSecurityPolicy
+metadata:
+  name: iam-loginapp-rest-public
+spec:
+  secured:
+    apiProtectionRef:
+      name: iam-loginapp-rest-public
+    filter:
+      denyRulesRef:
+        name: iam-loginapp-rest-public
+    headerRewritesRef:
+      name: iam-loginapp-rest-public
+    limitsRef:
+      name: iam
+    parserRef:
+      name: iam
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: iam-loginapp-rest-public

@@ -1,0 +1,105 @@
+# Adminer - database management UI at https://<fqdn>/adminer/ - behind Microgateway (OIDC login
+# at IAM, administrators only, gateway.yaml). Automatic login to the IAM database (plugin
+# login-auth-proxy): Microgateway sends the user in a header with an unguessable name (@@AUTH_HEADER@@).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: adminer
+  labels:
+    app.kubernetes.io/name: adminer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: adminer
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: adminer
+    spec:
+      containers:
+      - name: adminer
+        image: adminer:6.1.2
+        env:
+        - name: ADMINER_DEFAULT_SERVER
+          value: iam-mariadb.iam.svc.cluster.local
+        # automatic login: $_SERVER key of the user header, database account
+        - name: ADMINER_AUTH_KEY
+          value: "@@AUTH_KEY@@"
+        - name: DB_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: adminer-db
+              key: username
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: adminer-db
+              key: password
+        ports:
+        - name: http
+          containerPort: 8080
+        readinessProbe:
+          tcpSocket:
+            port: http
+        resources:
+          requests:
+            cpu: 10m
+            memory: 32Mi
+          limits:
+            memory: 256Mi
+        volumeMounts:
+        - name: plugins
+          mountPath: /var/www/html/adminer-plugins/login-auth-proxy.php
+          subPath: login-auth-proxy.php
+          readOnly: true
+        - name: plugins
+          mountPath: /var/www/html/plugins-enabled/001-login-auth-proxy.php
+          subPath: login-auth-proxy-enabled.php
+          readOnly: true
+      volumes:
+      - name: plugins
+        configMap:
+          name: adminer-plugins
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: adminer
+  labels:
+    app.kubernetes.io/name: adminer
+spec:
+  selector:
+    app.kubernetes.io/name: adminer
+  ports:
+  - name: http
+    port: 80
+    targetPort: http
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: adminer
+spec:
+  hostnames:
+  - "@@FQDN@@"
+  parentRefs:
+  - group: gateway.networking.k8s.io
+    kind: Gateway
+    name: airlock-gateway
+    namespace: airlock-gateway
+    sectionName: https
+  rules:
+  - matches:
+    - path:
+        type: PathPrefix
+        value: /adminer/
+    filters:
+    - type: URLRewrite
+      urlRewrite:
+        path:
+          type: ReplacePrefixMatch
+          replacePrefixMatch: /
+    backendRefs:
+    - name: adminer
+      port: 80

@@ -1,0 +1,37 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: argocd-cli
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "14"
+spec:
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  project: salesdemo
+  source:
+    repoURL: '@@REPO@@'
+    path: applications/packages/argocd/argocd-cli
+    plugin:
+      name: lovely
+      # hash of the project settings: a settings change re-renders the manifests (cache)
+      env:
+        - name: SETTINGS_HASH
+          value: '@@SETTINGS_HASH@@'
+      parameters:
+        - name: lovely_preprocessors
+          string: bash ./apply-config.sh
+    targetRevision: '@@RELEASE@@'
+  syncPolicy:
+    automated:
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+    retry:
+      limit: 10
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m

@@ -1,0 +1,28 @@
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: GatewayParameters
+metadata:
+  name: gatewayparameters
+  namespace: airlock-gateway
+spec:
+  features:
+    # EnvoyExtensionPolicy iam: Lua filter adding the Secure flag to IAM cookies
+    envoyExtensionPolicyEnabled: true
+  logging:
+    level: info
+  kubernetes:
+    service:
+      type: LoadBalancer
+      # fixed address (first of the LoadBalancer pool), used for in-cluster name resolution of the FQDN
+      annotations:
+        purelb.io/addresses: "@@GATEWAY_IP@@"
+        purelb.io/allow-local: "true"
+      # Local: keeps the client IP (IP allow-list of the local administrator, port 8443)
+      externalTrafficPolicy: Local
+    deployment:
+      replicas: 1
+      placement: {}
+      engineContainer: {}
+      automountServiceAccountToken: false
+  defaults:
+    sessionHandlingRef:
+      name: sessionagent

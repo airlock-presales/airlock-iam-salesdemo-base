@@ -1,0 +1,28 @@
+# Local administrator (port 8443): deny requests not coming from vm_admin_ips.
+# Never deployed before the first Azure instance: vmware/kvm instances had no vm_admin_ips.
+# apply-config.sh sets the CIDR ranges, or removes this resource if vm_admin_ips is empty.
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: AccessControlPolicy
+metadata:
+  name: iam-adminapp-local
+spec:
+  policies:
+    - requestConditions:
+        remoteIP:
+          cidrRanges: []
+          invert: true
+      authorization:
+        deny: {}
+    # fallback (required as the last policy, without requestConditions): all other requests pass,
+    # no authorization ({} disables it) - IAM authenticates the administrators itself
+    - authorization: {}
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: iam-adminapp-local
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: iam-adminapp-config-editor-local
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: iam-adminapp-rest-local

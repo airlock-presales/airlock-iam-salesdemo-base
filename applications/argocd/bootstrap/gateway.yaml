@@ -1,0 +1,42 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gateway
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/compare-options: ServerSideDiff=true
+    argocd.argoproj.io/sync-wave: "70"
+spec:
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: airlock-gateway
+  project: salesdemo
+  source:
+    repoURL: '@@REPO@@'
+    path: applications/packages/microgateway/instance
+    plugin:
+      name: lovely
+      # hash of the project settings: a settings change re-renders the manifests (cache)
+      env:
+        - name: SETTINGS_HASH
+          value: '@@SETTINGS_HASH@@'
+      parameters:
+        - name: lovely_preprocessors
+          string: bash ./apply-config.sh
+    targetRevision: '@@RELEASE@@'
+  syncPolicy:
+    automated:
+      # removes resources dropped from the package, e.g. the cert-manager Certificate with
+      # tls_issuer provided (otherwise cert-manager keeps recreating the secret gateway-tls-cert)
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+      - CreateNamespace=true
+    retry:
+      limit: 10
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m

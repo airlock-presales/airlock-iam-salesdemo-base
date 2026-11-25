@@ -1,0 +1,228 @@
+#! /bin/bash
+# init_db - runs in the mariadb client image before IAM starts
+# - downloads the MariaDB JDBC driver into the instance's libs directory (once)
+# - waits for the database
+# - creates the IAM schema if missing (database and user are created by the MariaDB operator)
+# - adds columns used by the demo configuration (email OTP opt-in, ID document, account recovery)
+# - realm administration: creates the realm roles mgr-admins (sub-roles mgr-owners, mgr-partners,
+#   mgr-orphans) and mgr-users with their delegations for the realms owners, partners and orphans,
+#   the emergency administrator (medusa_admin) and the initial realm administrator (medusa_user,
+#   realm owners), each if missing; initial
+#   password in cleartext, hashed by IAM at the first login (legacy hash function
+#   IdentityPasswordHash)
+# - technical administrator selfreg-lookup (medusa_admin, Adminapp REST API): finds the responsible
+#   administrator in the self-registration flow; password from OpenTofu, set on every start
+#   (also after a database restore), hashed by IAM at the first use
+#
+# Credentials are read from files (secrets mounted at SECRETS_DIR), never passed on a command line.
+
+set -euo pipefail
+
+function log ()
+{
+    echo "$(date +"%Y-%m-%d %H:%M:%S") $*"
+}
+
+function die ()
+{
+    log "ERROR: $*"
+    exit 1
+}
+
+for f in INSTANCE_DIR INIT_INSTANCE IAM_VERSION JDBC_VERSION DB_HOST DB_DATABASE SECRETS_DIR ADMIN_SECRETS_DIR
+do
+  [[ -n "${!f:-}" ]] || die "${f} not set"
+done
+
+instance_libs="${INSTANCE_DIR}/${INIT_INSTANCE}/libs"
+schema_version="$(echo "${IAM_VERSION}" | sed -e 's,\([0-9]*\.[0-9]*\).*,\1,')"
+
+# client configuration with credentials
+mycnf="$(mktemp)"
+trap 'rm -f "${mycnf}"' EXIT
+printf '[client]\nhost=%s\nuser=%s\npassword=%s\n' \
+    "${DB_HOST}" "$(cat "${SECRETS_DIR}/username")" "$(cat "${SECRETS_DIR}/password")" > "${mycnf}"
+
+function sql ()
+{
+    mariadb --defaults-extra-file="${mycnf}" "${DB_DATABASE}" --batch --silent --execute="$1"
+}
+
+# SQL from stdin - for statements containing secrets (not visible in the process list)
+function sql_stdin ()
+{
+    mariadb --defaults-extra-file="${mycnf}" "${DB_DATABASE}" --batch --silent
+}
+
+# quote a value as SQL string literal
+function sql_quote ()
+{
+    local v="${1//\\/\\\\}"
+    printf "'%s'" "${v//\'/\'\'}"
+}
+
+
+# JDBC driver
+jar="${instance_libs}/mariadb-java-client-${JDBC_VERSION}.jar"
+if [[ ! -f "${jar}" ]]; then
+    mkdir -p "${instance_libs}"
+    curl -fsSL "https://repo1.maven.org/maven2/org/mariadb/jdbc/mariadb-java-client/${JDBC_VERSION}/mariadb-java-client-${JDBC_VERSION}.jar" \
+        --output "${jar}" || die "Failed to download JDBC driver ${JDBC_VERSION}"
+    log "JDBC driver ${JDBC_VERSION} downloaded"
+else
+    log "JDBC driver ${JDBC_VERSION} already present"
+fi
+
+
+# wait for database
+until sql "SELECT 1;" > /dev/null 2>&1
+do
+    log "Waiting for database ${DB_DATABASE} on ${DB_HOST}"
+    sleep 5
+done
+log "Database ${DB_DATABASE} on ${DB_HOST} ready"
+
+
+# schema
+if [[ -z "$(sql "SELECT table_name FROM information_schema.tables WHERE table_schema = '${DB_DATABASE}' AND table_name = 'medusa_user' LIMIT 1")" ]]; then
+    schema="$(mktemp)"
+    curl -fsSL "https://docs.airlock.com/iam/${schema_version}/sql-scripts/schema/mariadb/create-medusa-schema.sql" \
+        --output "${schema}" || die "Failed to download schema ${schema_version}"
+    sql "source ${schema}" || die "Failed to create schema ${schema_version}"
+    rm -f "${schema}"
+    log "Schema ${schema_version} created"
+else
+    log "Schema exists (version $(sql "SELECT version FROM schema_metadata" 2>/dev/null || echo unknown)) - leaving unchanged"
+fi
+
+
+# additional user columns of the demo configuration (idempotent)
+sql "ALTER TABLE medusa_user ADD COLUMN IF NOT EXISTS email_otp_enabled INTEGER DEFAULT 0 NOT NULL,
+    ADD COLUMN IF NOT EXISTS idp_doc_number VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS idp_doc_type VARCHAR(50),
+    ADD COLUMN IF NOT EXISTS responsible_admin VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS email_alt VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS recovery_code VARCHAR(20),
+    ADD COLUMN IF NOT EXISTS recovery_request VARCHAR(20),
+    ADD COLUMN IF NOT EXISTS recovery_request_until VARCHAR(20),
+    ADD COLUMN IF NOT EXISTS recovery_confirmed_by VARCHAR(100),
+    ADD COLUMN IF NOT EXISTS recovery_state VARCHAR(1000),
+    ADD COLUMN IF NOT EXISTS recovery_wait_until VARCHAR(20);" || die "Failed to add demo columns"
+log "Demo columns of medusa_user present"
+
+
+# realm administration (realms exist only through delegations and user assignments):
+# - mgr-admins (root): all permissions in the realms owners (owner administrators), partners
+#   (partner administrators) and orphans (self-registered users without a responsible administrator)
+#   - sub-roles mgr-owners, mgr-partners, mgr-orphans: user management in one realm each
+# - mgr-users (root): user management in orphans (including moving users to another realm); parent
+#   of the partner realm roles adm-<company> (delegation to users-<company>), created at runtime by
+#   the partner administrator flow
+# Roles and delegations are created if missing, existing ones are left unchanged.
+perm_all="activateToken,createUser,deactivateToken,deletePassword,deleteToken,deleteUser,displayUserManagementExtensions,editToken,editUser,editUserRealm,editUsername,generatePassword,generateTokenIak,listUsers,lockUser,manageAdminRoles,manageOAuth2Consents,orderNewToken,orderPassword,triggerPasswordReset,unlockUser,unorderNewToken,unorderPassword,viewAirlock2FAActivationSecret,viewContextData,viewCrontoActivationSecret,viewOathOtpTokenSecret,viewToken,viewUser,viewUserLogs"
+# context data fields per permission (DB format perm{field;field}; without parameters: all fields):
+# all mgr-* except mgr-admins and the partner roles adm-<company> (same lists in the partner flow script)
+# don't see the recovery fields and may not change email_alt / responsible_admin (an administrator
+# could otherwise take over a user's account recovery); scripts only what the scripts use
+ctx_view="givenname;surname;responsible_admin;email_alt;mtan_number;country;company;email;language"
+ctx_edit="givenname;surname;country;company;email;language"
+ctx_scripts_view="email;language;company;responsible_admin;mtan_number;recovery_request;recovery_request_until;recovery_confirmed_by"
+# scripts (Lua steps through the Adminapp REST API, technical administrator selfreg-lookup): look up users
+# and their roles, assign roles, read/write context data, delete second factors (account recovery)
+perm_scripts="deleteToken,editUser{recovery_confirmed_by},listUsers,manageAdminRoles,viewContextData{${ctx_scripts_view}},viewToken,viewUser"
+perm_users="createUser,deleteUser,editUser{${ctx_edit}},editUsername,listUsers,lockUser,unlockUser,viewContextData{${ctx_view}},viewUser,viewUserLogs"
+perm_orphans="deleteUser,editUser{${ctx_edit}},listUsers,viewContextData{${ctx_view}},viewUser"
+# mgr-users: also the permissions of its sub-roles adm-<company> (a sub-role's delegation may be
+# limited to its parent's permissions)
+perm_mgr_users="createUser,deletePassword,deleteUser,editUser{${ctx_edit}},editUserRealm,editUsername,generatePassword,listUsers,lockUser,triggerPasswordReset,unlockUser,viewContextData{${ctx_view}},viewUser,viewUserLogs"
+
+# realm_role <name> [<parent>]
+function realm_role ()
+{
+    local name="$1" parent="${2:-}" parent_pk="NULL"
+    if [[ -n "$(sql "SELECT name FROM realm_role WHERE name='${name}'")" ]]; then
+        log "Realm role ${name} exists - leaving unchanged"
+        return
+    fi
+    if [[ -n "${parent}" ]]; then
+        parent_pk="$(sql "SELECT pk FROM realm_role WHERE name='${parent}'")"
+        [[ -n "${parent_pk}" ]] || die "Parent realm role ${parent} of ${name} missing"
+    fi
+    sql "INSERT INTO realm_role (name, parent_pk) VALUES ('${name}', ${parent_pk});" || die "Failed to create realm role ${name}"
+    log "Realm role ${name} created${parent:+ (parent ${parent})}"
+}
+
+# delegation <role> <realm> <permissions>
+function delegation ()
+{
+    local role="$1" realm="$2" permissions="$3"
+    if [[ -n "$(sql "SELECT d.id FROM realm_delegation d JOIN realm_role r ON d.realm_role_pk = r.pk WHERE r.name='${role}' AND d.realm='${realm}'")" ]]; then
+        log "Delegation ${role}/${realm} exists - leaving unchanged"
+        return
+    fi
+    sql "INSERT INTO realm_delegation (id, realm_role_pk, realm, permissions) SELECT UUID(), pk, '${realm}', '${permissions}' FROM realm_role WHERE name='${role}';" \
+        || die "Failed to create delegation ${role}/${realm}"
+    log "Delegation ${role}/${realm} created"
+}
+
+realm_role mgr-admins
+realm_role mgr-owners mgr-admins
+realm_role mgr-partners mgr-admins
+realm_role mgr-orphans mgr-admins
+# mgr-users, scripts: parent mgr-admins - a realm role without parent cannot be edited in the Adminapp (no
+# realm permissions delegated on it)
+realm_role mgr-users mgr-admins
+realm_role scripts mgr-admins
+for r in owners partners orphans; do
+    delegation mgr-admins "${r}" "${perm_all}"
+done
+delegation mgr-owners owners "${perm_users}"
+delegation mgr-partners partners "${perm_users}"
+delegation mgr-orphans orphans "${perm_orphans}"
+delegation mgr-users orphans "${perm_mgr_users}"
+# partner realms users-<company>: delegation created at runtime by the partner administrator flow
+for r in owners partners orphans; do
+    delegation scripts "${r}" "${perm_scripts}"
+done
+
+
+# administrators: emergency administrator (Adminapp password login) and initial realm administrator
+emergency="emergency"
+admin="$(cat "${ADMIN_SECRETS_DIR}/username")"
+# initial password (setting sec_password_iam); a failing cat inside the nested command
+# substitution would not stop the script, so check explicitly
+[[ -s "${ADMIN_SECRETS_DIR}/password" ]] || die "Initial administrator password missing or empty (secret iam-admin, key password - run make apply-3)"
+password="$(sql_quote "$(cat "${ADMIN_SECRETS_DIR}/password")")"
+if [[ -z "$(sql "SELECT username FROM medusa_admin WHERE username='${emergency}'")" ]]; then
+    printf "INSERT INTO medusa_admin (username, givenname, surname, roles, pwd_hash, pwd_chg_enf) VALUES ('%s', 'IAM', 'Emergency Administrator', 'superadmin,realmadmin,mgr-admins', %s, 0);\n" \
+        "${emergency}" "${password}" | sql_stdin || die "Failed to create emergency administrator ${emergency}"
+    log "Emergency administrator ${emergency} created"
+else
+    log "Emergency administrator ${emergency} exists - leaving unchanged"
+fi
+if [[ -z "$(sql "SELECT username FROM medusa_user WHERE username='${admin}'")" ]]; then
+    printf "INSERT INTO medusa_user (username, givenname, surname, roles, realm, pwd_hash, pwd_chg_enf) VALUES ('%s', 'IAM', 'Administrator', 'mgr-admins,superadmin', 'owners', %s, 0);\n" \
+        "${admin}" "${password}" | sql_stdin || die "Failed to create realm administrator ${admin}"
+    log "Realm administrator ${admin} created"
+else
+    log "Realm administrator ${admin} exists - leaving unchanged"
+fi
+
+
+# technical administrator for the self-registration flow (lookup of the responsible administrator
+# through the Adminapp REST API, basic authentication against medusa_admin); the password is
+# always reset to the one from OpenTofu (cleartext, hashed by IAM at the first use)
+lookup="selfreg-lookup"
+[[ -s "${ADMIN_SECRETS_DIR}/selfreg-lookup-password" ]] || die "Password of ${lookup} missing or empty (secret iam-admin, key selfreg-lookup-password - run make apply-3)"
+lookup_password="$(sql_quote "$(cat "${ADMIN_SECRETS_DIR}/selfreg-lookup-password")")"
+if [[ -z "$(sql "SELECT username FROM medusa_admin WHERE username='${lookup}'")" ]]; then
+    printf "INSERT INTO medusa_admin (username, givenname, surname, roles, pwd_hash, pwd_chg_enf) VALUES ('%s', 'IAM', 'Self-Registration Lookup', 'superadmin,scripts,mgr-users', %s, 0);\n" \
+        "${lookup}" "${lookup_password}" | sql_stdin || die "Failed to create technical administrator ${lookup}"
+    log "Technical administrator ${lookup} created"
+else
+    # roles reset too: realm role scripts (permissions of the scripts), mgr-users (parent of the partner
+    # realm roles adm-<company>)
+    printf "UPDATE medusa_admin SET pwd_hash=%s, pwd_chg_enf=0, locked=0, failed_logins=0, roles='superadmin,scripts,mgr-users' WHERE username='%s';\n" \
+        "${lookup_password}" "${lookup}" | sql_stdin || die "Failed to set password of ${lookup}"
+    log "Technical administrator ${lookup}: password set"
+fi

@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: headlamp
+
+resources:
+- httproute.yaml
+- gateway.yaml
+
+# Kubernetes web UI at https://<fqdn>/headlamp/ - behind Microgateway (OIDC login at IAM,
+# administrators only, gateway.yaml); Headlamp uses its service account (cluster-admin) for all users
+helmCharts:
+- name: headlamp
+  repo: https://kubernetes-sigs.github.io/headlamp/
+  version: 0.46.0
+  releaseName: headlamp
+  namespace: headlamp
+  valuesInline:
+    config:
+      baseURL: /headlamp
+      # no Headlamp login: every user acts as the pod's service account - only behind the
+      # Microgateway authentication gate (AccessControlPolicy headlamp)
+      unsafeUseServiceAccountToken: true
+    clusterRoleBinding:
+      create: true
+      clusterRoleName: cluster-admin

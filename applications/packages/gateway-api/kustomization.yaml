@@ -1,0 +1,7 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+# vendored (no network access when rendering): Gateway API v1.6.2 standard channel from
+# https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.6.2/standard-install.yaml
+- standard-install.yaml

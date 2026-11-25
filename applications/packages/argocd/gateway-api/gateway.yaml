@@ -1,0 +1,136 @@
+# ArgoCD behind Microgateway: OIDC relying party for all of /argocd/ (client argocd-gw at the IAM
+# authorization server 'demo', administrators with Airlock 2FA or passkey). Single sign-on: the
+# access token is exchanged at IAM for a token for ArgoCD, forwarded as bearer token. ArgoCD's own
+# IAM login (client argocd, oidc.config) remains as fallback.
+# The password login of the built-in admin (POST api/v1/session) is blocked; remove the first
+# policy to enable it again. argocd-cli (argocd --core) is not affected - it uses the Kubernetes API.
+# Token endpoint and JWKS: IAM service in the cluster; authorization endpoint: public URL.
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: OIDCProvider
+metadata:
+  name: iam-demo
+spec:
+  static:
+    issuer: https://@@FQDN@@/auth-login/rest/oauth2/authorization-servers/demo
+    endpoints:
+      authorization:
+        uri: https://@@FQDN@@/auth-login/oauth2/v3/demo/authorize
+      token:
+        uri: http://iam.iam.svc.cluster.local/auth-login/rest/oauth2/authorization-servers/demo/token
+    tokenValidation:
+      idToken:
+        signatureVerification:
+          jwksRef:
+            name: iam-demo
+---
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: JWKS
+metadata:
+  name: iam-demo
+spec:
+  provider:
+    remote:
+      uri: http://iam.iam.svc.cluster.local/auth-login/rest/oauth2/authorization-servers/demo/jwks
+---
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: OIDCRelyingParty
+metadata:
+  name: argocd
+spec:
+  clientID: argocd-gw
+  credentials:
+    clientSecret:
+      method: BasicAuth
+      # key client.secret, created by OpenTofu
+      secretRef:
+        name: argocd-gw-oidc-client
+  oidcProviderRef:
+    name: iam-demo
+  redirectURI: https://@@FQDN@@/argocd/_oidc/callback
+  pathMapping:
+    redirectPath:
+      matcher:
+        exact: /argocd/_oidc/callback
+    logoutPath:
+      matcher:
+        exact: /argocd/_oidc/logout
+  scopes:
+  - openid
+---
+# token exchange at IAM: the access token of the OIDC session for a token for ArgoCD (audience argocd,
+# claim argocd_user, 10 minutes), cached in the Microgateway session, exchanged again when expired
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: TokenExchange
+metadata:
+  name: argocd
+spec:
+  tokenEndpoint:
+    endpoint:
+      uri: http://iam.iam.svc.cluster.local/auth-login/rest/oauth2/authorization-servers/demo/token
+    credentials:
+      clientPassword:
+        clientID: argocd-gw
+        method: BasicAuth
+        clientSecret:
+          # key client.secret, created by OpenTofu
+          secretRef:
+            name: argocd-gw-oidc-client
+  audiences:
+  - argocd
+  requestedTokenType: urn:ietf:params:oauth:token-type:jwt
+  exchangedTokenValidation:
+    jwt:
+      requireAny:
+      - jwksRef:
+          name: iam-demo
+        issuer: https://@@FQDN@@/auth-login/rest/oauth2/authorization-servers/demo
+        audiences:
+        - argocd
+---
+# ArgoCD accepts tokens of its OIDC issuer as bearer token - no ArgoCD login page
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: IdentityPropagation
+metadata:
+  name: argocd-bearer
+spec:
+  bearerToken:
+    source:
+      tokenExchange: {}
+---
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: AccessControlPolicy
+metadata:
+  name: argocd
+spec:
+  policies:
+    - requestConditions:
+        method:
+          - POST
+        path:
+          matcher:
+            exact: /argocd/api/v1/session
+      authorization:
+        deny: {}
+    - authorization:
+        authentication:
+          oidc:
+            oidcRelyingPartyRef:
+              name: argocd
+      tokenExchange:
+        subjectToken:
+          oidc:
+            accessToken: {}
+        actions:
+          - tokenExchangeRef:
+              name: argocd
+        onFailure: Block
+      identityPropagation:
+        actions:
+          - identityPropagationRef:
+              name: argocd-bearer
+        # only value in 5.2.2
+        onFailure: Pass
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: argocd

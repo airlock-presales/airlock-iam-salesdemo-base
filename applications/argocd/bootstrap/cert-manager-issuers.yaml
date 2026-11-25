@@ -1,0 +1,36 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager-issuers
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "51"
+spec:
+  destination:
+    server: https://kubernetes.default.svc
+  project: salesdemo
+  source:
+    repoURL: '@@REPO@@'
+    path: applications/packages/cert-manager/issuers
+    targetRevision: '@@RELEASE@@'
+    plugin:
+      name: lovely
+      # hash of the project settings: a settings change re-renders the manifests (cache)
+      env:
+        - name: SETTINGS_HASH
+          value: '@@SETTINGS_HASH@@'
+      parameters:
+        - name: lovely_preprocessors
+          string: bash ./apply-config.sh
+  syncPolicy:
+    automated:
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+    retry:
+      limit: 10
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m

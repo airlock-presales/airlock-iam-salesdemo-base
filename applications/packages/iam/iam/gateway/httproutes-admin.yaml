@@ -1,0 +1,77 @@
+# Adminapp for the local administrator on port 8443 (Gateway listener 'admin').
+# Same security policies as on port 443 (see contentsecuritypolicies.yaml, secure-cookie.yaml);
+# access restricted to vm_admin_ips by AccessControlPolicy iam-adminapp-local (admin-ip-allowlist.yaml).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: iam-adminapp-local
+spec:
+  hostnames:
+    - '@@FQDN@@'
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: airlock-gateway
+      namespace: airlock-gateway
+      sectionName: admin
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: iam
+          port: 80
+          weight: 1
+      matches:
+        - path:
+            type: PathPrefix
+            value: /auth-admin/
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: iam-adminapp-config-editor-local
+spec:
+  hostnames:
+    - '@@FQDN@@'
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: airlock-gateway
+      namespace: airlock-gateway
+      sectionName: admin
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: iam
+          port: 80
+          weight: 1
+      matches:
+        - path:
+            type: PathPrefix
+            value: /auth-admin/editConfig/
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: iam-adminapp-rest-local
+spec:
+  hostnames:
+    - '@@FQDN@@'
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: airlock-gateway
+      namespace: airlock-gateway
+      sectionName: admin
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: iam
+          port: 80
+          weight: 1
+      matches:
+        - path:
+            type: PathPrefix
+            value: /auth-admin/rest/

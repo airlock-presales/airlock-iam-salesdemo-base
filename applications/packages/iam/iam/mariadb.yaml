@@ -1,0 +1,32 @@
+# Database for IAM, managed by the MariaDB operator.
+# Credentials: secret iam-db, created by OpenTofu.
+apiVersion: k8s.mariadb.com/v1alpha1
+kind: MariaDB
+metadata:
+  name: iam-mariadb
+spec:
+  database: iam
+  username: iam
+  passwordSecretKeyRef:
+    name: iam-db
+    key: password
+    generate: false
+  rootPasswordSecretKeyRef:
+    name: iam-db
+    key: root-password
+    generate: false
+  port: 3306
+  replicas: 1
+  storage:
+    size: 500Mi
+    storageClassName: local-path
+  metrics:
+    enabled: false
+  myCnf: |
+    [mariadb]
+    bind-address=*
+    default_storage_engine=InnoDB
+    binlog_format=row
+    innodb_autoinc_lock_mode=2
+    innodb_buffer_pool_size=128M
+    max_allowed_packet=16M

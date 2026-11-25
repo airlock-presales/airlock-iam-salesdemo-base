@@ -1,0 +1,14 @@
+apiVersion: microgateway.airlock.com/v1alpha1
+kind: RedisProvider
+metadata:
+  name: sessionagent
+  namespace: airlock-gateway
+spec:
+  mode:
+    standalone:
+      host: valkey.airlock-gateway.svc.cluster.local
+      port: 6379
+  auth:
+    password:
+      secretRef:
+        name: redis-password

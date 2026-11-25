@@ -1,0 +1,29 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gateway-api
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "32"
+spec:
+  destination:
+    server: https://kubernetes.default.svc
+  project: salesdemo
+  source:
+    repoURL: '@@REPO@@'
+    path: applications/packages/gateway-api
+    targetRevision: '@@RELEASE@@'
+  syncPolicy:
+    automated:
+      selfHeal: true
+    syncOptions:
+      - ServerSideApply=true
+      - SkipDryRunOnMissingResource=true
+      # Never prune CRDs - deleting them removes all resources
+      - Prune=false
+    retry:
+      limit: 10
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m

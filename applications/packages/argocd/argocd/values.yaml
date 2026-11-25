@@ -1,0 +1,169 @@
+# ArgoCD helm values - single source for
+# - initial installation by OpenTofu (03-argocd)
+# - self-management by ArgoCD (application 'argocd')
+# @@FQDN@@ is replaced by the instance FQDN in both cases.
+
+global:
+  domain: "@@FQDN@@"
+  # in-cluster name resolution of the FQDN (OIDC discovery at IAM through Microgateway):
+  # fixed LoadBalancer address of the gateway (PureLB annotation in GatewayParameters)
+  hostAliases:
+    - ip: "@@GATEWAY_IP@@"
+      hostnames:
+        - "@@FQDN@@"
+
+crds:
+  install: true
+  keep: true
+  annotations:
+    # never delete or prune ArgoCD CRDs (and with them all Applications)
+    argocd.argoproj.io/sync-options: ServerSideApply=true,Prune=false,Delete=false
+
+configs:
+  params:
+    # diff with dry-run server-side apply: fields defaulted by the API server (e.g. HTTPRoute
+    # backendRefs weight/group/kind, CRD defaults) are no differences
+    controller.diff.server.side: "true"
+    # small single node: renders may take longer than the default 60s (e.g. during the initial
+    # installation) - a failed comparison delays an app until the next reconciliation
+    controller.repo.server.timeout.seconds: "180"
+    # render in turns instead of all at once (lovely plugin, helm)
+    reposerver.parallelism.limit: "2"
+  cm:
+    url: https://@@FQDN@@/argocd
+    kustomize.buildOptions: --enable-helm
+    application.resourceTrackingMethod: annotation
+    statusbadge.enabled: "true"
+    users.session.duration: "4h"
+    exec.enabled: "true"
+    # ArgoCD default: transient errors (e.g. a failed comparison) are retried at the next reconciliation
+    timeout.reconciliation: "120s"
+    # login with Airlock IAM (authorization server 'demo', client argocd): local administrators with
+    # Airlock 2FA or passkey; the static ID token claim argocd_user=admin maps to role:admin (rbac).
+    # The built-in admin (password) stays enabled; Microgateway blocks its login (POST api/v1/session).
+    oidc.config: |
+      name: Airlock IAM
+      issuer: https://@@FQDN@@/auth-login/rest/oauth2/authorization-servers/demo
+      clientID: argocd
+      clientSecret: $argocd-oidc-iam:clientSecret
+      requestedScopes: ["openid"]
+    # internal CA (tls_issuer internal): IAM certificate not verifiable by ArgoCD
+    oidc.tls.insecure.skip.verify: "@@OIDC_SKIP_VERIFY@@"
+    # app-of-apps: status changes of child applications (health) must trigger a refresh of the parent -
+    # ArgoCD 3 ignores status-only updates by default, then each sync wave waits for the next
+    # reconciliation (120s + jitter, observed 2.5-6 min per wave)
+    resource.ignoreResourceUpdatesEnabled: "false"
+    # the chart's default rule ignores /status of all resources and is applied regardless: status
+    # changes of CRDs (Established) or admission policies did not refresh their application, which
+    # then stayed Progressing/Degraded until the next reconciliation (2-3.5 min per wave)
+    resource.customizations.ignoreResourceUpdates.all: |
+      jsonPointers: []
+    # CRDs: Healthy unless they report a real error. ArgoCD rates a new CRD Progressing (sometimes
+    # Degraded) until it is established, but does not refresh the application on CRD status changes,
+    # so CRD applications stayed Progressing/Degraded until the next reconciliation (2-3.5 min per
+    # sync wave). The API server establishes a CRD within seconds; a wave using it too early is
+    # retried by bootstrap (10s).
+    resource.customizations.health.apiextensions.k8s.io_CustomResourceDefinition: |
+      hs = {}
+      hs.status = "Healthy"
+      hs.message = ""
+      if obj.status ~= nil and obj.status.conditions ~= nil then
+        for _, c in ipairs(obj.status.conditions) do
+          if (c.type == "NonStructuralSchema" and c.status == "True")
+              or (c.type == "NamesAccepted" and c.status == "False") then
+            hs.status = "Degraded"
+            hs.message = c.message or c.type
+            return hs
+          end
+        end
+      end
+      return hs
+    # app-of-apps: sync waves wait for child applications to become healthy
+    resource.customizations.health.argoproj.io_Application: |
+      hs = {}
+      hs.status = "Progressing"
+      hs.message = ""
+      if obj.status ~= nil then
+        if obj.status.health ~= nil then
+          hs.status = obj.status.health.status
+          if obj.status.health.message ~= nil then
+            hs.message = obj.status.health.message
+          end
+        end
+      end
+      return hs
+  secret:
+    # argocd-secret (admin password) is managed by OpenTofu
+    createSecret: false
+  rbac:
+    # IAM users: ID token claim argocd_user (static value admin); others have no access
+    policy.default: ""
+    scopes: "[argocd_user]"
+    policy.csv: |
+      g, admin, role:admin
+
+controller:
+  replicas: 1
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      memory: "1Gi"
+
+server:
+  replicas: 1
+  httproute:
+    enabled: false
+  ingress:
+    enabled: false
+  extraArgs:
+    - "--insecure"  # TLS is terminated by Airlock Microgateway
+    - "--basehref=/argocd"
+    - "--rootpath=/argocd"
+
+repoServer:
+  replicas: 1
+  resources:
+    requests:
+      # renders get their CPU share on a busy node
+      cpu: "250m"
+      memory: "256Mi"
+    limits:
+      memory: "512Mi"
+  # lovely plugin: runs apply-config.sh with instance settings before kustomize/helm
+  extraContainers:
+    - name: lovely-plugin
+      image: ghcr.io/crumbhole/lovely:1.2.4
+      env:
+        # plugin name referenced by the applications (default: argocd-lovely-plugin)
+        - name: PLUGIN_NAME
+          value: lovely
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+      volumeMounts:
+        - mountPath: /var/run/argocd
+          name: var-files
+        - mountPath: /home/argocd/cmp-server/plugins
+          name: plugins
+        - mountPath: /home/argocd/project-settings
+          name: project-settings
+          readOnly: true
+        - mountPath: /tmp
+          name: lovely-tmp
+  volumes:
+    - name: lovely-tmp
+      emptyDir: {}
+    - name: project-settings
+      configMap:
+        name: project-settings
+
+redis:
+  enabled: true
+
+redis-ha:
+  enabled: false
+
+applicationSet:
+  replicas: 1

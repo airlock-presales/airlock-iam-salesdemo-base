@@ -1,0 +1,23 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# sync waves: see annotation argocd.argoproj.io/sync-wave in each application
+resources:
+- argocd.yaml
+- argocd-cli.yaml
+- argocd-httproute.yaml
+- cert-manager.yaml
+- cert-manager-crd.yaml
+- cert-manager-issuers.yaml
+- gateway.yaml
+- gateway-api.yaml
+- iam.yaml
+- adminer.yaml
+- mailpit.yaml
+- qr-service.yaml
+- headlamp.yaml
+- local-path-provisioner.yaml
+- mariadb-crds.yaml
+- mariadb-operator.yaml
+- microgateway.yaml
+- purelb.yaml
+- purelb-crd.yaml
